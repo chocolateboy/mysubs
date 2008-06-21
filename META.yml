@@ -1,0 +1,15 @@
+--- #YAML:1.0
+name:                mysubs
+version:             0.01
+abstract:            lexical subroutines
+license:             perl
+author:              
+    - chocolateboy <chocolate.boy@email.com>
+generated_by:        ExtUtils::MakeMaker version 6.42
+distribution_type:   module
+requires:     
+    Devel::Hints::Lexical:         0.09
+    Scope::Guard:                  0.03
+meta-spec:
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3
