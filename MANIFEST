@@ -1,6 +1,8 @@
 Changes
+lib/mysubs.pm
 Makefile.PL
-MANIFEST
+MANIFEST			This list of files
+META.yml
 mysubs.xs
 ppport.h
 ptable.h
@@ -14,5 +16,3 @@ t/mysubs_test_3.pm
 t/ref.t
 t/require.t
 t/unimport.t
-lib/mysubs.pm
-META.yml                                 Module meta-data (added by MakeMaker)

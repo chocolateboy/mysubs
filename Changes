@@ -1,5 +1,8 @@
 Revision history for Perl extension mysubs.
 
+0.12  Mon Jun 23 21:55:18 2008
+    - use Devel::Pragma::ccstash to identify the caller
+
 0.11  Mon Jun 23 15:48:13 2008
     - snip unused code
 

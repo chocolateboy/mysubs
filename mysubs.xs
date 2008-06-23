@@ -25,7 +25,7 @@ static OP * my_ck_require(pTHX_ OP * o) {
         goto done;
     }
 
-    /* make sure the Devel::Hints::Lexical flags are set */
+    /* make sure the Devel::Pragma flags are set */
     if ((PL_hints & 0x80020000) != 0x80020000) {
         goto done;
     }

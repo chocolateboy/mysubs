@@ -8,12 +8,12 @@ use warnings;
 use Carp qw(croak);
 use Scope::Guard;
 use Scalar::Util;
-use Devel::Hints::Lexical qw(new_scope);
+use Devel::Pragma qw(new_scope ccstash);
 use XSLoader;
 
 my %CACHE;
 
-our $VERSION = '0.11';
+our $VERSION = '0.12';
 
 XSLoader::load __PACKAGE__, $VERSION;
 
@@ -50,7 +50,6 @@ sub glob_enter($$) {
 
     no strict 'refs';
 
-    # my $old_glob = exists(${"$stash\::"}{$name}) ? delete ${"$stash\::"}{$name} : undef;
     my $old_glob = exists(${"$stash\::"}{$name}) ? delete ${"$stash\::"}{$name} : undef;
 
     # create the new glob
@@ -101,8 +100,8 @@ sub import {
 
     my $debug = delete $bindings{-debug};
     my $autoload = delete $bindings{-autoload};
-    my $caller = caller;
-    my $hints = \%^H; # FIXME: doesn't currently play nice with Devel::Hints::Lexical::my_hints
+    my $caller = ccstash();
+    my $hints = \%^H; # FIXME: doesn't currently play nice with Devel::Pragma::my_hints
     my $new_scope = new_scope;
     my ($mysubs, %restore);
    
@@ -186,7 +185,7 @@ sub unimport {
 
     my $class = shift;
     my $mysubs = $^H{mysubs};
-    my $caller = caller;
+    my $caller = ccstash();
     my @subs = @_ ? (map { "$caller\::$_" } @_) : keys(%$mysubs);
 
     for my $fqname (@subs) {
@@ -213,7 +212,7 @@ mysubs - lexical subroutines
              foo       => sub { print "foo", $/ }, # anonymous sub
              bar       => \&bar,                   # code ref
              chomp     => 'main::mychomp',         # sub name
-             dump      => '+Data::Dumper::dump',   # autoload Data::Dumper
+             dump      => '+Data::Dumper::Dumper', # autoload Data::Dumper
             -autoload  => 1,                       # autoload all subs passed by name
             -debug     => 1;                       # show diagnostic messages
 
@@ -242,7 +241,7 @@ local subroutine names. The following options are supported:
 
 =head2 autoload
 
-If the sub is a package-qualified subroutine name, then the package can be automatically loaded.
+If the sub is a package-qualified subroutine name, then the module can be automatically loaded.
 This can either be done on a per-subroutine basis by prefixing the name with a C<+>, or for
 all name arguments by supplying the C<-autoload> option with a true value e.g.
 
@@ -259,7 +258,7 @@ or
     use mysubs
          foo =>  'MyFoo::foo',
          bar => '+MyBar::bar', # autoload MyBar
-         baz =>  'MyBaz::baz',
+         baz =>  'MyBaz::baz';
 
 =head2 debug
 
@@ -285,7 +284,7 @@ lexically-scoped pragmas that export subroutines whose definition is limited to 
 
     sub import {
         my $class = shift;
-        $class->SUPER::import(foo => sub { ... }, chomp => \&mychomp, ...);
+        $class->SUPER::import(foo => sub { ... }, chomp => \&mychomp);
     }
 
 Client code can then install lexical subs from the module:
@@ -350,7 +349,7 @@ if no arguments are supplied.
 
 =head1 VERSION
 
-0.11
+0.12
 
 =head1 SEE ALSO
 
@@ -358,7 +357,7 @@ if no arguments are supplied.
 
 =item * L<Subs::Lexical|Subs::Lexical>
 
-=item * L<Devel::Hints::Lexical|Devel::Hints::Lexical>
+=item * L<Devel::Pragma|Devel::Pragma>
 
 =back
 

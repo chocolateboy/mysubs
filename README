@@ -1,4 +1,4 @@
-mysubs version 0.11
+mysubs version 0.12
 ===================
 
 mysubs is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines whose definition
@@ -18,7 +18,7 @@ DEPENDENCIES
 This module requires these other modules and libraries:
 
   Scope::Guard
-  Devel::Hints::Lexical
+  Devel::Pragma
 
 COPYRIGHT AND LICENCE
 
