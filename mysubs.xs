@@ -9,7 +9,6 @@
 
 static PTABLE_t * OP_MAP = NULL;
 static OP * (*old_ck_require)(pTHX_ OP * o) = NULL;
-static OP * (*old_require)(pTHX) = NULL;
 static OP * my_ck_require(pTHX_ OP * o);
 static OP * my_require(pTHX);
 static U32 SCOPE_DEPTH = 0;
@@ -17,7 +16,6 @@ static U32 SCOPE_DEPTH = 0;
 static OP * my_ck_require(pTHX_ OP * o) {
     HV * table;
     SV ** svp;
-    char * name = NULL;
 
     /* delegate to the original checker */
     o = CALL_FPTR(old_ck_require)(aTHX_ o);
@@ -37,7 +35,6 @@ static OP * my_ck_require(pTHX_ OP * o) {
 
         if (kid->op_type == OP_CONST) { /* weed out use VERSION */
             SV * const sv = kid->op_sv;
-            name = SvPVX(sv);
 
             if (SvNIOK(sv)) { /* exclude use 5 and use 5.008 &c. */
                 goto done;
@@ -50,16 +47,7 @@ static OP * my_ck_require(pTHX_ OP * o) {
         }
     }
 
-    /*
-     * TODO
-     *
-     * if mysubs is in scope, splice in our version of require (over the top of Devel::Hints::Lexical)
-     * but store the Devel::Hints::Lexical op_ppaddr so we can delegate to it
-     */
     if ((table = GvHV(PL_hintgv)) && (svp = hv_fetch(table, "mysubs", 6, FALSE)) && *svp && SvOK(*svp)) {
-        if (!old_require) {
-            old_require = o->op_ppaddr; 
-        }
         o->op_ppaddr = my_require;
         SvREFCNT_inc(*svp);
         PTABLE_store(OP_MAP, o, *svp);
@@ -108,7 +96,7 @@ static OP * my_require(pTHX) {
         FREETMPS;
         LEAVE;
 
-        o = CALL_FPTR(old_require)(aTHX);
+        o = PL_ppaddr[cUNOP->op_type](aTHX);
 
         ENTER;
         SAVETMPS;
@@ -128,7 +116,7 @@ static OP * my_require(pTHX) {
     }
 
     done:
-    return CALL_FPTR(old_require)(aTHX);
+    return PL_ppaddr[cUNOP->op_type](aTHX);
 }
 
 MODULE = mysubs                PACKAGE = mysubs                
@@ -173,5 +161,4 @@ _leave()
         } else {
             SCOPE_DEPTH = 0;
             PL_check[OP_REQUIRE] = PL_check[OP_DOFILE] = old_ck_require;
-            old_require = NULL;
         }

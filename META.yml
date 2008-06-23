@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                mysubs
-version:             0.10
+version:             0.11
 abstract:            lexical subroutines
 license:             perl
 author:              

@@ -13,7 +13,7 @@ use XSLoader;
 
 my %CACHE;
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 XSLoader::load __PACKAGE__, $VERSION;
 
@@ -219,7 +219,7 @@ mysubs - lexical subroutines
 
         foo(...);
         bar;
-        dump ...;
+        dump ...;  # override builtin
         chomp ...; # override builtin
     }
 
@@ -350,7 +350,7 @@ if no arguments are supplied.
 
 =head1 VERSION
 
-0.10
+0.11
 
 =head1 SEE ALSO
 
