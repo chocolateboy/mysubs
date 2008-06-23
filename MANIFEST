@@ -3,10 +3,16 @@ Makefile.PL
 MANIFEST
 mysubs.xs
 ppport.h
+ptable.h
 README
 t/01_use.t
 t/basic.t
 t/builtins.t
+t/mysubs_test_1.pm
+t/mysubs_test_2.pm
+t/mysubs_test_3.pm
 t/ref.t
+t/require.t
+t/unimport.t
 lib/mysubs.pm
 META.yml                                 Module meta-data (added by MakeMaker)

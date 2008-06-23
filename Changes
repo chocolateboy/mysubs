@@ -1,4 +1,13 @@
 Revision history for Perl extension mysubs.
 
+0.10  Mon Jun 23 15:19:59 2008
+    - fix package leak
+        - require.t
+    - fix sub refs
+        - reft.t
+    - add -autoload and -debug options
+    - add unimport
+        - unimport.t
+
 0.01  Sat Jun 21 15:35:10 2008
     - original version; created by h2xs 1.23 with options -A --name=mysubs

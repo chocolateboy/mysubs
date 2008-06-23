@@ -18,7 +18,7 @@ WriteMakefile(
     VERSION_FROM  => 'lib/mysubs.pm',
     PREREQ_PM     => {
         'Scope::Guard'          => '0.03',
-        'Devel::Hints::Lexical' => '0.09',
+        'Devel::Hints::Lexical' => '0.10',
     },
     ABSTRACT_FROM => 'lib/mysubs.pm',
     AUTHOR        => 'chocolateboy <chocolate.boy@email.com>',

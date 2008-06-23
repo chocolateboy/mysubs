@@ -7,21 +7,22 @@ use Test::More tests => 12;
 
 my $error = qr{^Undefined subroutine &main::test called at};
 
-eval { test('fail') };
-like ($@, $error, 'not defined in previous scope');
+ok(not(defined &test), 'not defined in previous scope');
 
 {
     use mysubs test => sub {
         my $name = shift;
-        pass($name) unless ($name =~ /^redefine/);
+        unlike($name, qr{^redefine}, $name);
     };
 
     test 'scope';
     test('scope with parens');
 
     {
-        test 'nested scope';
-        test('nested scope with parens');
+        BEGIN {
+            test 'nested scope';
+            test('nested scope with parens');
+        }
 
         use mysubs foo => sub {
             pass(shift);
@@ -29,7 +30,7 @@ like ($@, $error, 'not defined in previous scope');
 
         use mysubs test => sub {
             my $name = shift;
-            pass($name) if ($name =~ /^redefine/);
+            like($name, qr{^redefine}, $name);
         };
 
         foo 'nested sub';
@@ -43,5 +44,4 @@ like ($@, $error, 'not defined in previous scope');
     test('scope again with parens');
 }
 
-eval { test('fail') };
-like ($@, $error, 'not defined in next scope');
+ok(not(defined &test), 'not defined in next scope');

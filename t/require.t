@@ -1,0 +1,66 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use if (-d 't'), lib => 't'; 
+
+use Test::More tests => 18;
+use File::Spec;
+
+{
+    use mysubs test => sub { pass(shift) };
+
+    BEGIN {
+        require mysubs_test_1;
+    }
+
+    test('previous: require');
+
+    ok(test1(), "previous: lexical subs don't leak into packages re-opened via require");
+
+    {
+        test('nested: require');
+        ok(test1(), "nested: lexical subs don't leak into packages re-opened via require");
+    }
+
+    test('next: require');
+    ok(test1(), "next: lexical subs don't leak into packages re-opened via require");
+}
+
+
+{
+    use mysubs test => sub { pass(shift) };
+    use mysubs_test_2;
+
+    test('previous: use');
+    ok(test2(), "previous: lexical subs don't leak into packages re-opened via use");
+
+    {
+        test('nested: use');
+        ok(test2(), "nested: lexical subs don't leak into packages re-opened via use");
+    }
+
+    test('next: use');
+    ok(test2(), "next: lexical subs don't leak into packages re-opened via use");
+}
+
+{
+    use mysubs test => sub { pass(shift) };
+
+    BEGIN {
+        my $file = (-d 't') ? File::Spec->catfile('t', 'mysubs_test_3.pm') : 'mysubs_test_3.pm';
+        do $file;
+    }
+
+    test('previous: do FILE');
+    ok(test3(), "previous: lexical subs don't leak into packages re-opened via do FILE");
+
+    {
+        test('nested: do FILE');
+        ok(test3(), "nested: lexical subs don't leak into packages re-opened via do FILE");
+    }
+
+    test('next: do FILE');
+    ok(test3(), "next: lexical subs don't leak into packages re-opened via do FILE");
+}

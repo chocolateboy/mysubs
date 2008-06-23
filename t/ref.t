@@ -14,7 +14,7 @@ like ($@, $error, 'not defined in previous scope');
 {
     use mysubs test => sub {
         my $name = shift;
-        pass($name) unless ($name =~ /^redefine/);
+        unlike($name, qr{^redefine}, $name);
     };
 
     my $test = \&test;
@@ -28,14 +28,14 @@ like ($@, $error, 'not defined in previous scope');
             pass(shift);
         };
 
-	my $foo = \&foo;
+        my $foo = \&foo;
 
         use mysubs test => sub {
             my $name = shift;
-            pass($name) if ($name =~ /^redefine/);
+            like($name, qr{^redefine}, $name);
         };
 
-	my $test = \&test;
+        my $test = \&test;
 
         $foo->('nested sub');
         $test->('redefine');
