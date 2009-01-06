@@ -12,7 +12,7 @@ use File::Spec;
     use mysubs test => sub { pass(shift) };
 
     BEGIN {
-        require mysubs_test_1;
+        require test_1;
     }
 
     test('previous: require');
@@ -28,10 +28,9 @@ use File::Spec;
     ok(test1(), "next: lexical subs don't leak into packages re-opened via require");
 }
 
-
 {
     use mysubs test => sub { pass(shift) };
-    use mysubs_test_2;
+    use test_2;
 
     test('previous: use');
     ok(test2(), "previous: lexical subs don't leak into packages re-opened via use");
@@ -49,7 +48,7 @@ use File::Spec;
     use mysubs test => sub { pass(shift) };
 
     BEGIN {
-        my $file = (-d 't') ? File::Spec->catfile('t', 'mysubs_test_3.pm') : 'mysubs_test_3.pm';
+        my $file = (-d 't') ? File::Spec->catfile('t', 'test_3.pm') : 'test_3.pm';
         do $file;
     }
 

@@ -10,9 +10,13 @@ README
 t/01_use.t
 t/basic.t
 t/builtins.t
-t/mysubs_test_1.pm
-t/mysubs_test_2.pm
-t/mysubs_test_3.pm
 t/ref.t
 t/require.t
+t/subclass.t
+t/test_1.pm
+t/test_2.pm
+t/test_3.pm
+t/test_4.pm
+t/test_5.pm
+t/test_6.pm
 t/unimport.t

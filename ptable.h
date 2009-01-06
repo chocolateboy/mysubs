@@ -2,6 +2,9 @@
  * This is copied more or less verbatim from the pointer table implementation in sv.c
  */
 
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
 #include "ppport.h"
 
 #define PTABLE_HASH(ptr) ((PTR2UV(ptr) >> 3) ^ (PTR2UV(ptr) >> (3 + 7)) ^ (PTR2UV(ptr) >> (3 + 17)))
@@ -56,7 +59,7 @@ PTABLE_find(PTABLE_t *tbl, const void *key)
     for (; tblent; tblent = tblent->next) {
         /* ++probes; */
         if (tblent->key == key) {
-	    /* Perl_warn_nocontext("probes: %0d\n", probes); */
+            /* Perl_warn_nocontext("probes: %0d\n", probes); */
             return tblent;
         }
     }

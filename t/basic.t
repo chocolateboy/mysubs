@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 12;
+use Test::More tests => 13;
 
 my $error = qr{^Undefined subroutine &main::test called at};
 
@@ -42,6 +42,7 @@ ok(not(defined &test), 'not defined in previous scope');
 
     test 'scope again';
     test('scope again with parens');
+    eval q{pass("string eval")};
 }
 
 ok(not(defined &test), 'not defined in next scope');

@@ -6,16 +6,16 @@ use strict;
 use warnings;
 
 use Carp qw(croak);
-use Scope::Guard;
+use B::Hooks::EndOfScope;
 use Scalar::Util;
-use Devel::Pragma qw(new_scope ccstash);
+use Devel::Pragma qw(new_scope ccstash my_hints);
 use XSLoader;
+
+our $VERSION = '0.20';
 
 my %CACHE;
 
-our $VERSION = '0.12';
-
-XSLoader::load __PACKAGE__, $VERSION;
+XSLoader::load(__PACKAGE__, $VERSION);
 
 # return true if $ref ISA $class - works with non-references, unblessed references and objects
 sub _isa($$) {
@@ -97,30 +97,33 @@ sub import {
     my ($class, %bindings) = @_;
 
     return unless (%bindings);
+    my (undef, $filenamex, $linex) = caller;
 
     my $debug = delete $bindings{-debug};
     my $autoload = delete $bindings{-autoload};
     my $caller = ccstash();
-    my $hints = \%^H; # FIXME: doesn't currently play nice with Devel::Pragma::my_hints
-    my $new_scope = new_scope;
+    my $hints = my_hints;
+    my $new_scope = new_scope($class);
     my ($mysubs, %restore);
    
     if ($new_scope) {
         # clone the bindings so that definitions in a nested scope don't contaminate
         # those in an outer scope
-        $mysubs = $hints->{mysubs} ? { %{ $hints->{mysubs} } } : {};
+        $mysubs = $hints->{$class} ? { %{ $hints->{$class} } } : {};
 
         # make sure this hash stays alive till runtime for require()
         $CACHE{$mysubs} = $mysubs;
 
-        # create a snapshot of the current lexical subs
-        # this is restored by a Scope::Guard handler at the end of the (compilation of the) scope
+        # create a snapshot of the current lexical sub bindings (if any) in effect at
+        # the beginning of the scope
+        # this is restored by a B::Hooks::EndOfScope hook at the
+        # end of the (compilation of the) current scope
         for my $fqname (keys %$mysubs) {
             no strict 'refs';
             $restore{$fqname} = *{$fqname};
         }
     } else {
-        $mysubs = $hints->{mysubs};
+        $mysubs = $hints->{$class};
     }
 
     my (undef, $filename, $line) = caller;
@@ -140,12 +143,12 @@ sub import {
         my $fqname = "$caller\::$name";
 
         if (exists $mysubs->{$fqname}) {
-            print STDERR "mysubs: redefining $fqname ($filename:$line)", $/
+            print STDERR "$class: redefining $fqname ($filename:$line)", $/
                 if $debug;
             glob_enter($fqname, $sub);
             $mysubs->{$fqname}->[1] = $sub;
         } else {
-            print STDERR "mysubs: creating $fqname ($filename:$line)", $/
+            print STDERR "$class: creating $fqname ($filename:$line)", $/
                 if $debug;
             $mysubs->{$fqname}->[0] = glob_enter($fqname, $sub);
             $mysubs->{$fqname}->[1] = $sub;
@@ -153,38 +156,37 @@ sub import {
     }
 
     if ($new_scope) {
-        _enter();
+        $hints->{$class} = $mysubs;
 
-        my $guard = Scope::Guard->new(
-            sub {
-                my (undef, $filename, $line) = caller(1);
-                for my $fqname (keys %$mysubs) {
-                    if (exists $restore{$fqname}) {
-                        print STDERR "mysubs: restoring $fqname ($filename:$line)", $/
-                            if $debug;
-                        glob_leave($fqname, $restore{$fqname});
-                    } else {
-                        print STDERR "mysubs: deleting $fqname ($filename:$line)", $/
-                            if $debug;
-                        glob_leave($fqname, $mysubs->{$fqname}->[0]);
-                    }
+        on_scope_end {
+            my (undef, $filename, $line) = caller(1);
+
+            for my $fqname (keys %$mysubs) {
+                if (exists $restore{$fqname}) {
+                    print STDERR "$class: restoring $fqname ($filename:$line)", $/
+                        if $debug;
+                    glob_leave($fqname, $restore{$fqname});
+                } else {
+                    print STDERR "$class: deleting $fqname ($filename:$line)", $/
+                        if $debug;
+                    glob_leave($fqname, $mysubs->{$fqname}->[0]);
                 }
-
-                _leave();
             }
-        );
 
-        $hints->{$guard} = $guard;
-        $hints->{mysubs} = $mysubs;
+            _leave();
+        };
+
+        _enter();
     }
 }
 
 # uninstall one or more lexical subs from the current scope
 sub unimport {
-    return unless (($^H | 0x20000) && $^H{mysubs});
-
     my $class = shift;
-    my $mysubs = $^H{mysubs};
+
+    return unless (($^H & 0x20000) && $^H{$class});
+
+    my $mysubs = $^H{$class};
     my $caller = ccstash();
     my @subs = @_ ? (map { "$caller\::$_" } @_) : keys(%$mysubs);
 
@@ -227,8 +229,8 @@ mysubs - lexical subroutines
 
 =head1 DESCRIPTION
 
-C<mysubs> is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines whose definition
-is restricted to the lexical scope in which they are visible.
+C<mysubs> is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines whose use
+is restricted to the lexical scope in which they are defined.
 
 The C<use mysubs> statement takes a list of key/value pairs in which the keys are C<mysubs> options or local
 subroutine names and the values are subroutine references or strings containing the package name of the
@@ -262,7 +264,7 @@ or
 
 =head2 debug
 
-If the C<-debug> option is supplied with a true value, a trace of the module's behaviour is printed to STDERR.
+If the C<-debug> option is supplied with a true value, a trace of the module's actions is printed to STDERR.
 
 e.g.
 
@@ -276,7 +278,7 @@ e.g.
 =head2 import
 
 C<mysub::import> can be called indirectly via C<use mysubs> or can be overridden to create
-lexically-scoped pragmas that export subroutines whose definition is limited to the calling scope e.g.
+lexically-scoped pragmas that export subroutines whose use is limited to the calling scope e.g.
 
     package MyPragma;
 
@@ -284,10 +286,10 @@ lexically-scoped pragmas that export subroutines whose definition is limited to 
 
     sub import {
         my $class = shift;
-        $class->SUPER::import(foo => sub { ... }, chomp => \&mychomp);
+        $class->SUPER::import(foo => sub { ... }, chomp => \&mychomp, ...);
     }
 
-Client code can then install lexical subs from the module:
+Client code can then import lexical subs from the module:
 
     #!/usr/bin/env perl
 
@@ -329,11 +331,28 @@ if no arguments are supplied.
 
     foo ...; # ok
 
+Unimports are specific to the class supplied in the C<no> statement, so pragmas that subclass
+C<mysubs> inherit an C<unimport> method that only removes the subs they installed e.g.
+
+    {
+        use MyPragma qw(foo bar baz);
+
+        use mysubs quux => \&quux;
+
+        foo;
+        quux(...);
+
+        no MyPragma qw(foo); # unimports foo
+        no MyPragma;         # unimports bar and baz
+
+        no mysubs;           # unimports quux
+    }
+
 =head1 CAVEATS
 
 =over
 
-=item * Lexical methods are not currently implemented e.g.
+=item * Lexical (i.e. private) methods are not currently implemented e.g.
 
     package Foo;
 
@@ -349,7 +368,7 @@ if no arguments are supplied.
 
 =head1 VERSION
 
-0.12
+0.20
 
 =head1 SEE ALSO
 
@@ -368,7 +387,7 @@ mst (Matt S Trout) and Paul Fenwick for the idea.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2008 by chocolateboy
+Copyright (C) 2008-2009 by chocolateboy
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.8 or,

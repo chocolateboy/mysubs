@@ -11,10 +11,10 @@ test1('previous scope: first sub');
 
 {
     use mysubs
-	test2 => sub { pass 'nested scope: second sub' },
-	test3 => sub { pass 'nested scope: third sub' };
+        test2 => sub { pass 'nested scope: second sub' },
+        test3 => sub { pass 'nested scope: third sub' };
 
-    test1;
+    test1('nested scope: first sub');
     test2;
     test3;
 
@@ -29,7 +29,6 @@ test1('previous scope: first sub');
     ok(not(defined &test1), 'nested scope: still undefined first sub');
     ok(not(defined &test2), 'nested scope: undefined second sub');
     ok(not(defined &test3), 'nested scope: undefined third sub');
-
 }
 
 test1('next scope: first sub');

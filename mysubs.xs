@@ -1,3 +1,10 @@
+/*
+    context marshalling massively pessimizes extensions built for threaded perls e.g. Cygwin.
+
+    define PERL_CORE rather than PERL_NO_GET_CONTEXT (see perlguts) because PERL_GET_NO_CONTEXT still incurs the
+    overhead of an extra function call for each interpreter variable
+*/
+
 #define PERL_CORE
 
 #include "EXTERN.h"
@@ -25,25 +32,25 @@ static OP * my_ck_require(pTHX_ OP * o) {
         goto done;
     }
 
-    /* make sure the Devel::Pragma flags are set */
-    if ((PL_hints & 0x80020000) != 0x80020000) {
-        goto done;
-    }
+    if (o->op_type != OP_DOFILE) {
+        if (o->op_flags & OPf_KIDS) { 
+            SVOP * const kid = (SVOP*)cUNOPo->op_first;
 
-    if (o->op_flags & OPf_KIDS) { 
-        SVOP * const kid = (SVOP*)cUNOPo->op_first;
+            if (kid->op_type == OP_CONST) { /* weed out use VERSION */
+                SV * const sv = kid->op_sv;
 
-        if (kid->op_type == OP_CONST) { /* weed out use VERSION */
-            SV * const sv = kid->op_sv;
-
-            if (SvNIOK(sv)) { /* exclude use 5 and use 5.008 &c. */
-                goto done;
-            }
+                if (SvNIOKp(sv)) { /* exclude use 5 and use 5.008 &c. */
+                    goto done;
+                }
 #ifdef SvVOK
-            if (SvVOK(sv)) { /* exclude use v5.008 and use 5.6.1 &c. */
-                goto done;
-            }
+                if (SvVOK(sv)) { /* exclude use v5.008 and use 5.6.1 &c. */
+                    goto done;
+                }
 #endif
+                if (!SvPOKp(sv)) { /* err on the side of caution */
+                    goto done;
+                }
+            }
         }
     }
 
@@ -65,15 +72,21 @@ static OP * my_require(pTHX) {
 
     sv = TOPs;
 
-    if (SvNIOK(sv)) { /* exclude use 5 and use 5.008 &c. */
-        goto done;
-    }
-            
+    if (PL_op->op_type != OP_DOFILE) {
+        if (SvNIOKp(sv)) { /* exclude use 5 and use 5.008 &c. */
+            goto done;
+        }
+                
 #ifdef SvVOK
-    if (SvVOK(sv)) { /* exclude use v5.008 and use 5.6.1 &c. */
-        goto done;
-    }
+        if (SvVOK(sv)) { /* exclude use v5.008 and use 5.6.1 &c. */
+            goto done;
+        }
 #endif
+
+        if (!SvPOKp(sv)) { /* err on the side of caution */
+            goto done;
+        }
+    }
 
     /*
      * bindings is a reference to a hash whose keys are symbol names (e.g. 'main::foo') and whose values
@@ -144,8 +157,10 @@ _enter()
              * usually, this will be Perl_ck_require, though, in principle,
              * it could be a bespoke checker spliced in by another module.
              */
-            old_ck_require = PL_check[OP_REQUIRE];
-            PL_check[OP_REQUIRE] = PL_check[OP_DOFILE] = my_ck_require;
+	    if (PL_check[OP_REQUIRE] != my_ck_require) {
+		old_ck_require = PL_check[OP_REQUIRE];
+		PL_check[OP_REQUIRE] = PL_check[OP_DOFILE] = my_ck_require;
+	    }
         }
 
 void

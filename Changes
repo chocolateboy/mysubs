@@ -1,5 +1,11 @@
 Revision history for Perl extension mysubs.
 
+0.20  Tue Jan 6 20:08:52 2009
+    - Fix broken end-of-scope handling in perl 5.10 by replacing Scope::Guard with B::Hooks::EndOfScope
+      (rafl++)
+    - add support for "no MyPragma" and "no MyPragma qw(...)", where MyPragma is a subclass of mysubs
+        - added subclass.t
+
 0.12  Mon Jun 23 21:55:18 2008
     - use Devel::Pragma::ccstash to identify the caller
 
