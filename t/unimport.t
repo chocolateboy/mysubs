@@ -7,28 +7,34 @@ use Test::More tests => 11;
 
 use mysubs test1 => sub { pass(shift) };
 
-test1('previous scope: first sub');
+test1('previous scope: test1');
 
 {
     use mysubs
-        test2 => sub { pass 'nested scope: second sub' },
-        test3 => sub { pass 'nested scope: third sub' };
+        test2 => sub { pass 'nested scope: test2' },
+        test3 => sub { pass 'nested scope: test3' };
 
-    test1('nested scope: first sub');
-    test2;
-    test3;
+    BEGIN {
+        test1('nested scope: test1');
+        test2;
+        test3;
+    }
 
     no mysubs qw(test1);
 
-    ok(not(defined &test1), 'nested scope: undefined first sub');
-    ok((defined &test2), 'nested scope: still defined second sub');
-    ok((defined &test3), 'nested scope: still defined third sub');
+    BEGIN {
+        ok(not(defined &test1), 'nested scope: undefined test1');
+        ok((defined &test2), 'nested scope: still defined test2');
+        ok((defined &test3), 'nested scope: still defined test3');
+    }
 
     no mysubs;
 
-    ok(not(defined &test1), 'nested scope: still undefined first sub');
-    ok(not(defined &test2), 'nested scope: undefined second sub');
-    ok(not(defined &test3), 'nested scope: undefined third sub');
+    BEGIN {
+        ok(not(defined &test1), 'nested scope: still undefined test1');
+        ok(not(defined &test2), 'nested scope: undefined test2');
+        ok(not(defined &test3), 'nested scope: undefined test3');
+    }
 }
 
-test1('next scope: first sub');
+test1('next scope: test1');

@@ -1,8 +1,8 @@
-mysubs version 0.20
+mysubs version 1.00
 ===================
 
 mysubs is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines whose use
-is restricted to the lexical scope in which they are defined.
+is restricted to the lexical scope in which they are declared.
 
 INSTALLATION
 
@@ -18,7 +18,11 @@ DEPENDENCIES
 This module requires these other modules and libraries:
 
   B::Hooks::EndOfScope
+  B::Hooks::OP::Check
+  B::Hooks::OP::PPAddr
   Devel::Pragma
+  ExtUtils::Depends
+  Test::Exception
 
 COPYRIGHT AND LICENCE
 

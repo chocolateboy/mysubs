@@ -1,0 +1,5 @@
+GV*                             T_GV
+
+INPUT
+T_GV
+        $var = (GV*)$arg

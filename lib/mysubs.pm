@@ -5,17 +5,79 @@ use 5.008;
 use strict;
 use warnings;
 
-use Carp qw(croak);
+use constant {
+    UNDO    => 0,
+    REDO    => 1,
+};
+
 use B::Hooks::EndOfScope;
+use B::Hooks::OP::Annotation;
+use B::Hooks::OP::Check;
+use Carp qw(croak carp);
+use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
-use Devel::Pragma qw(new_scope ccstash my_hints);
 use XSLoader;
 
-our $VERSION = '0.20';
-
-my %CACHE;
+our $VERSION = '1.00';
+our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
+
+my $DEBUG = xs_get_debug(); # flag indicating whether debug messages should be printed
+
+# The key under which the $installed hash is installed in %^H i.e. 'mysubs'
+# Defined as a preprocessor macro in mysubs.xs to ensure the Perl and XS are kept in sync
+my $MYSUBS = xs_sig();
+
+# accessors for the debug flags - note there is one for Perl ($DEBUG) and one defined
+# in the XS (MYSUBS_DEBUG). The accessors ensure that the two are kept in sync
+sub get_debug()   { $DEBUG }
+sub set_debug($)  { xs_set_debug($DEBUG = shift || 0) }
+sub start_trace() { set_debug(1) }
+sub stop_trace()  { set_debug(0) }
+
+# This logs glob transitions i.e. installations and uninstallations of globs - identified
+# by their IDs (see below)
+sub debug ($$$$$) {
+    my ($class, $action, $fqname, $old, $new) = @_; 
+    my $glold = glob_id($old);
+    my $glnew = glob_id($new);
+    carp "$class: $action $fqname ($glold => $glnew)";
+}
+
+# The unique identifier for a typeglob - formatted as a hex value
+#
+# There's a bit of indirection in the GV struct that means we have to reach inside
+# it to get the moral equivalent of its Scalar::Util::refaddr(). That's done in XS,
+# and this sub pretty-prints it as a hex value
+sub glob_id($) {
+    sprintf '0x%x', xs_glob_id($_[0]);
+}
+
+# return a deep copy of the $installed hash - a hash containing the installed
+# subs after any invocation of mysubs::import or mysubs::unimport
+#
+# the hash is cloned to ensure that inner/nested scopes don't clobber/contaminate
+# outer/previous scopes with their new bindings. Likewise, unimport installs
+# a new hash to ensure that previous bindings aren't clobbered e.g.
+#
+#   {
+#       package Foo;
+#
+#        use mysubs bar => sub { ... };
+#
+#        bar();
+#
+#        no mysubs; # don't clobber the bindings associated with the previous subroutine call
+#   }
+#
+# The hash and array refs are copied, but the globs are preserved.
+
+# XXX: for some reason, Clone's clone doesn't seem to work here
+sub clone($) {
+    my $orig = shift;
+    return { map { $_ => [ @{$orig->{$_}} ] } keys %$orig };
+}
 
 # return true if $ref ISA $class - works with non-references, unblessed references and objects
 sub _isa($$) {
@@ -24,16 +86,16 @@ sub _isa($$) {
 }
 
 # croak with the name of this package prefixed
-sub _pcroak(@) {
+sub pcroak(@) {
     croak __PACKAGE__, ': ', @_;
 }
 
-# load a module
-sub _load($) {
+# load a perl module
+sub load($) {
     my $symbol = shift;
     my $module = _split($symbol)->[0];
     eval "require $module";
-    _pcroak "can't load $module: $@" if ($@);
+    pcroak "can't load $module: $@" if ($@);
 }
 
 # split "Foo::Bar::baz" into the stash (Foo::Bar) and the name (baz)
@@ -44,13 +106,13 @@ sub _split($) {
 
 # install a clone of the current typeglob for the supplied symbol and add a new CODE entry
 # mst++ and phaylon++ for this idea
-sub glob_enter($$) {
+sub install_sub($$) {
     my ($symbol, $sub) = @_;
     my ($stash, $name) = _split($symbol);
 
     no strict 'refs';
 
-    my $old_glob = exists(${"$stash\::"}{$name}) ? delete ${"$stash\::"}{$name} : undef;
+    my $old_glob = delete ${"$stash\::"}{$name};
 
     # create the new glob
     *{"$stash\::$name"} = $sub;
@@ -62,140 +124,260 @@ sub glob_enter($$) {
         }
     }
 
-    return $old_glob;
+    return wantarray ? ($old_glob, *{"$stash\::$name"}) : *{"$stash\::$name"};
 }
 
-# restore the previous typeglob - or delete it if it didn't exist
-sub glob_leave($$) {
+# restore the typeglob that existed before the lexical sub was defined - or delete it if it didn't exist
+sub glob_install($$) {
     my ($symbol, $glob) = @_;
     my ($stash, $name) = _split($symbol);
 
     no strict 'refs';
 
-    delete ${"$stash\::"}{$name};
+    my $old_glob = delete ${"$stash\::"}{$name};
     ${"$stash\::"}{$name} = $glob if ($glob);
+
+    return $old_glob;
 }
 
-# clear lexical subs before require()
-sub require_enter($) {
-    my $bindings = shift;
-    for my $key (keys %$bindings) {
-        glob_leave($key, $bindings->{$key}->[0]);
+# this function is used to enter or leave a lexical context, where "context" means a set of
+# lexical bindings in the form of globs with or without subroutines in the CODE slot
+#
+# for each lexical sub, import() creates or augments a hash that stores globs in the UNDO and REDO slots.
+# these globs represent the before and after state of the glob corresponding to the supplied
+# (fully-qualified) sub name. The UNDO glob is the glob prior to any declaration of a lexical
+# sub with that name, and the REDO glob is the currently-active glob, with the most-recenly
+# defined lexical sub in its CODE slot.
+#
+# This data is used to support compile-time requires; install uninstalls the current globs (UNDO),
+# calls the original require(), then reinstalls the globs (REDO). this ensures lexical subs don't
+# leak across file boundaries
+
+sub install($$) {
+    my ($installed, $action_id) = @_;
+    my $runtime = xs_runtime();
+
+    for my $fqname (keys %$installed) {
+        my $action = [ 'uninstalling', 'installing' ]->[$action_id];
+        my $old_glob = glob_install($fqname, $installed->{$fqname}->[$action_id]);
+
+        # at runtime, make a note of the glob we're supplanting so that it
+        # (i.e. the runtime UNDO rather than the compile-time UNDO) can be restored
+        #
+        # we don't need the compile-time UNDO anymore, so that slot is as good a place
+        # as any to store the runtime UNDO
+
+        if ($runtime && ($action_id == REDO)) {
+            $installed->{$fqname}->[UNDO] = $old_glob;
+        }
+
+        debug('mysubs', $action, $fqname, $old_glob, $installed->{$fqname}->[$action_id]) if ($DEBUG);
     }
 }
 
-# restore lexical subs after require()
-sub require_leave($) {
-    my $bindings = shift;
-    for my $key (keys %$bindings) {
-        glob_enter($key, $bindings->{$key}->[1]);
-    }
-}
+# install one or more lexical subs in the current scope
+#
+# import() has to keep track of three things:
+#
+# 1) $installed keeps track of *all* currently active lexical subs so that they can be
+#    uninstalled before require() and reinstalled afterwards
+# 2) $restore keeps track of *all* active lexical subs in the outer scope
+#    so that they can be restored at the end of the current scope
+# 3) $mysubs keeps track of which subs have been installed by this class (which may be a subclass of
+#    mysubs) in this scope, so that they can be unimported with "no MyPragma (...)"
+#
+# In theory, restoration is done in two passes, the first over $installed and the second over $restore:
+#
+#     1) new/overridden: reinstate all the subs in $installed to their previous state in $restore (if any)
+#     2) deleted: reinstate all the subs in $restore that are not defined in $installed (because
+#        they were explicitly unimported)
+# 
+# In practice, as an optimization, an auxilliary hash ($remainder) is used to keep track of the
+# elements of $restore that were removed (via unimport) from $installed. This reduces the overhead
+# of the second pass so that it doesn't redundantly traverse elements covered by the first pass.
 
-# install lexical subs
 sub import {
     my ($class, %bindings) = @_;
 
     return unless (%bindings);
-    my (undef, $filenamex, $linex) = caller;
 
-    my $debug = delete $bindings{-debug};
     my $autoload = delete $bindings{-autoload};
-    my $caller = ccstash();
+    my $debug = delete $bindings{-debug};
     my $hints = my_hints;
-    my $new_scope = new_scope($class);
-    my ($mysubs, %restore);
-   
-    if ($new_scope) {
-        # clone the bindings so that definitions in a nested scope don't contaminate
-        # those in an outer scope
-        $mysubs = $hints->{$class} ? { %{ $hints->{$class} } } : {};
+    my $caller = ccstash();
+    my $installed;
 
-        # make sure this hash stays alive till runtime for require()
-        $CACHE{$mysubs} = $mysubs;
-
-        # create a snapshot of the current lexical sub bindings (if any) in effect at
-        # the beginning of the scope
-        # this is restored by a B::Hooks::EndOfScope hook at the
-        # end of the (compilation of the) current scope
-        for my $fqname (keys %$mysubs) {
-            no strict 'refs';
-            $restore{$fqname} = *{$fqname};
+    if (defined $debug) {
+        my $old_debug = get_debug();
+        if ($debug != $old_debug) {
+            set_debug($debug);
+            on_scope_end { set_debug($old_debug) };
         }
-    } else {
-        $mysubs = $hints->{$class};
     }
 
-    my (undef, $filename, $line) = caller;
+    if (new_scope($MYSUBS)) {
+        my $top_level = 0;
+        my $restore = $hints->{$MYSUBS};
 
-    # normalize bindings
+        if ($restore) {
+            $installed = $hints->{$MYSUBS} = clone($restore); # clone
+        } else {
+            $top_level = 1;
+            $restore = {};
+            $installed = $hints->{$MYSUBS} = {}; # create
+
+            # when a compile-time require (or do FILE) is performed, uninstall all
+            # lexical subs (UNDO) and the check handler (xs_leave) beforehand,
+            # and reinstate the lexical subs and check handler afterwards
+            on_require(
+                sub { my $hash = shift; install($hash->{$MYSUBS}, UNDO); xs_leave() },
+                sub { my $hash = shift; install($hash->{$MYSUBS}, REDO); xs_enter() }
+            );
+            xs_enter();
+        }
+
+        # keep it around for runtime i.e. prototype()
+        xs_cache($installed);
+
+        on_scope_end {
+            my $hints = my_hints; # refresh the %^H reference - doesn't work without this
+            my $installed = $hints->{$MYSUBS};
+
+            # this hash records (or will record) the lexical subs unimported from
+            # the current scope
+            my $remainder = { %$restore };
+
+            for my $fqname (keys %$installed) {
+                if (exists $restore->{$fqname}) {
+                    unless (xs_glob_eq($installed->{$fqname}->[REDO], $restore->{$fqname}->[REDO])) {
+                        $class->debug(
+                            'restoring (overridden)',
+                            $fqname,
+                            $installed->{$fqname}->[REDO],
+                            $restore->{$fqname}->[REDO]
+                        ) if ($DEBUG);
+                        glob_install($fqname, $restore->{$fqname}->[REDO]);
+                    }
+                } else {
+                    $class->debug(
+                        'deleting',
+                        $fqname,
+                        $installed->{$fqname}->[REDO],
+                        $installed->{$fqname}->[UNDO]
+                    ) if ($DEBUG);
+                    glob_install($fqname, $installed->{$fqname}->[UNDO]);
+                }
+
+                delete $remainder->{$fqname};
+            }
+
+            for my $fqname (keys %$remainder) {
+                $class->debug(
+                    'restoring (unimported)',
+                    $fqname,
+                    $restore->{$fqname}->[UNDO],
+                    $restore->{$fqname}->[REDO]
+                ) if ($DEBUG);
+                glob_install($fqname, $restore->{$fqname}->[REDO]);
+            }
+        };
+
+        # disable mysubs altogether when we leave the top-level scope in which it was enabled
+        # XXX this must be done here i.e. *after* the scope restoration handler
+        on_scope_end \&xs_leave if ($top_level);
+    } else {
+        $installed = $hints->{$MYSUBS}; # augment
+    }
+
+    # Note the class-specific data is stored under a mysubs-flavoured name rather than the
+    # unadorned class name. The subclass might well have its owne uses for $^H{$class}, so we keep
+    # our mitts off it
+    #
+    # Also, the unadorned class can't be used as a class if $MYSUBS is 'mysubs' (which
+    # it is) as the two uses conflict with and clobber each other
+
+    my $subclass = "$MYSUBS($class)";
+    my $mysubs;
+
+    # never use the $class as the identifier for new_scope() - see above
+    if (new_scope($subclass)) {
+        $mysubs = $hints->{$subclass};
+        $mysubs = $hints->{$subclass} = $mysubs ? { %$mysubs } : {}; # clone/create
+    } else {
+        $mysubs = $hints->{$subclass}; # augment
+    }
+
     for my $name (keys %bindings) {
         my $sub = $bindings{$name};
 
+        # normalize bindings
         unless (_isa($sub, 'CODE')) {
             $sub = do {
-                _load($sub) if (($sub =~ s/^\+//) || $autoload);
+                load($sub) if (($sub =~ s/^\+//) || $autoload);
                 no strict 'refs';
                 *{$sub}{CODE}
-            } || _pcroak "can't find subroutine: '$sub'";
+            } || pcroak "can't find subroutine: '$sub'";
         }
 
-        my $fqname = "$caller\::$name";
+        my $fqname = fqname($name, $caller);
+        my ($old, $new) = install_sub($fqname, $sub);
 
-        if (exists $mysubs->{$fqname}) {
-            print STDERR "$class: redefining $fqname ($filename:$line)", $/
-                if $debug;
-            glob_enter($fqname, $sub);
-            $mysubs->{$fqname}->[1] = $sub;
+        if (exists $installed->{$fqname}) {
+            $class->debug('redefining', $fqname, $old, $new) if ($DEBUG);
+            $installed->{$fqname}->[REDO] = $new;
         } else {
-            print STDERR "$class: creating $fqname ($filename:$line)", $/
-                if $debug;
-            $mysubs->{$fqname}->[0] = glob_enter($fqname, $sub);
-            $mysubs->{$fqname}->[1] = $sub;
+            $class->debug('creating', $fqname, $old, $new) if ($DEBUG);
+            $installed->{$fqname} = [];
+            $installed->{$fqname}->[UNDO] = $old;
+            $installed->{$fqname}->[REDO] = $new;
         }
-    }
 
-    if ($new_scope) {
-        $hints->{$class} = $mysubs;
-
-        on_scope_end {
-            my (undef, $filename, $line) = caller(1);
-
-            for my $fqname (keys %$mysubs) {
-                if (exists $restore{$fqname}) {
-                    print STDERR "$class: restoring $fqname ($filename:$line)", $/
-                        if $debug;
-                    glob_leave($fqname, $restore{$fqname});
-                } else {
-                    print STDERR "$class: deleting $fqname ($filename:$line)", $/
-                        if $debug;
-                    glob_leave($fqname, $mysubs->{$fqname}->[0]);
-                }
-            }
-
-            _leave();
-        };
-
-        _enter();
+        $mysubs->{$fqname} = $new;
     }
 }
-
+   
 # uninstall one or more lexical subs from the current scope
 sub unimport {
     my $class = shift;
+    my $hints = my_hints;
+    my $subclass = "$MYSUBS($class)";
+    my $mysubs;
 
-    return unless (($^H & 0x20000) && $^H{$class});
+    return unless (($^H & 0x20000) && ($mysubs = $hints->{$subclass}));
 
-    my $mysubs = $^H{$class};
     my $caller = ccstash();
-    my @subs = @_ ? (map { "$caller\::$_" } @_) : keys(%$mysubs);
+    my @subs = @_ ? (map { scalar(fqname($_, $caller)) } @_) : keys(%$mysubs);
+    my $installed = $hints->{$MYSUBS};
+    my $new_installed = clone($installed);
+    my $deleted = 0;
 
     for my $fqname (@subs) {
-        if ($mysubs->{$fqname}) {
-            glob_leave($fqname, $mysubs->{$fqname}->[0]);
+        my $glob = $mysubs->{$fqname};
+
+        if ($glob) { # the glob this module/subclass installed
+            # if the current glob ($installed->{$fqname}->[REDO]) is the glob this module installed ($mysubs->{$fqname})
+            if (xs_glob_eq($glob, $installed->{$fqname}->[REDO])) {
+                my $old = $installed->{$fqname}->[REDO];
+                my $new = $installed->{$fqname}->[UNDO];
+
+                $class->debug('unimporting', $fqname, $old, $new) if ($DEBUG);
+                glob_install($fqname, $installed->{$fqname}->[UNDO]); # restore the glob to its pre-lexical sub state
+
+                # what import adds, unimport taketh away
+                delete $new_installed->{$fqname};
+                delete $mysubs->{$fqname};
+
+                ++$deleted;
+            } else {
+                carp "$class: attempt to unimport a shadowed lexical sub: $fqname";
+            }
         } else {
-            _pcroak("can't remove lexical sub '$fqname': not defined"); 
+            carp "$class: attempt to unimport an undefined lexical sub: $fqname";
         }
+    }
+
+    if ($deleted) {
+        xs_cache($hints->{$MYSUBS} = $new_installed);
     }
 }
 
@@ -211,41 +393,48 @@ mysubs - lexical subroutines
 
     {
         use mysubs
-             foo       => sub { print "foo", $/ }, # anonymous sub
-             bar       => \&bar,                   # code ref
-             chomp     => 'main::mychomp',         # sub name
-             dump      => '+Data::Dumper::Dumper', # autoload Data::Dumper
-            -autoload  => 1,                       # autoload all subs passed by name
-            -debug     => 1;                       # show diagnostic messages
+          foo      => sub ($) { ... },          # anonymous sub value
+          bar      => \&bar,                    # code ref value
+          chomp    => 'main::mychomp',          # sub name value
+          dump     => '+Data::Dumper::Dumper',  # autoload Data::Dumper
+         'My::foo' => \&foo,                    # package-qualified sub name
+         -autoload => 1,                        # autoload all subs passed by name
+         -debug    => 1                         # show diagnostic messages
+        ;
 
-        foo(...);
-        bar;
-        dump ...;  # override builtin
-        chomp ...; # override builtin
+        foo(...);        # OK
+        prototype('foo') # '$'
+        My::foo(...);    # OK
+        bar;             # OK
+        chomp ...;       # override builtin
+        dump ...;        # override builtin
     }
 
-    foo(...);  # runtime error: Undefined subroutine &main::foo
-    chomp ...; # builtin
+    foo(...);            # compile-time error: Undefined subroutine &main::foo
+    My::foo(...);        # compile-time error: Undefined subroutine &My::foo
+    prototype('foo')     # undef
+    chomp ...;           # builtin
+    dump ...;            # builtin
 
 =head1 DESCRIPTION
 
-C<mysubs> is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines whose use
-is restricted to the lexical scope in which they are defined.
+C<mysubs> is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines
+whose use is restricted to the lexical scope in which they are declared.
 
-The C<use mysubs> statement takes a list of key/value pairs in which the keys are C<mysubs> options or local
-subroutine names and the values are subroutine references or strings containing the package name of the
-subroutine.
+The C<use mysubs> statement takes a list of key/value pairs in which the keys are subroutine
+name and the values are subroutine references or strings containing the package-qualified names
+of the subroutines. In addition, C<mysubs> options may be passed.
 
 =head1 OPTIONS
 
-Options can be passed to the C<use mysubs> statement. They are prefixed with a C<-> to distinguish them from
-local subroutine names. The following options are supported:
+C<mysubs> options are prefixed with a hyphen to distinguish them from subroutine names.
+The following options are supported:
 
-=head2 autoload
+=head2 -autoload
 
-If the sub is a package-qualified subroutine name, then the module can be automatically loaded.
+If the value is a package-qualified subroutine name, then the module can be automatically loaded.
 This can either be done on a per-subroutine basis by prefixing the name with a C<+>, or for
-all name arguments by supplying the C<-autoload> option with a true value e.g.
+all named values by supplying the C<-autoload> option with a true value e.g.
 
     use mysubs
          foo      => 'MyFoo::foo',
@@ -262,9 +451,10 @@ or
          bar => '+MyBar::bar', # autoload MyBar
          baz =>  'MyBaz::baz';
 
-=head2 debug
+=head2 -debug
 
-If the C<-debug> option is supplied with a true value, a trace of the module's actions is printed to STDERR.
+A trace of the module's actions can be enabled or disabled lexically by supplying the C<-debug> option
+with a true or false value. The trace is printed to STDERR.
 
 e.g.
 
@@ -277,8 +467,8 @@ e.g.
 
 =head2 import
 
-C<mysub::import> can be called indirectly via C<use mysubs> or can be overridden to create
-lexically-scoped pragmas that export subroutines whose use is limited to the calling scope e.g.
+C<mysub::import> can be called indirectly via C<use mysubs> or can be overridden by subclasses to create
+lexically-scoped pragmas that export subroutines whose use is restricted to the calling scope e.g.
 
     package MyPragma;
 
@@ -286,7 +476,7 @@ lexically-scoped pragmas that export subroutines whose use is limited to the cal
 
     sub import {
         my $class = shift;
-        $class->SUPER::import(foo => sub { ... }, chomp => \&mychomp, ...);
+        $class->SUPER::import(foo => sub { ... }, chomp => \&mychomp, UNIVERSAL::bar => 'My::bar');
     }
 
 Client code can then import lexical subs from the module:
@@ -300,7 +490,7 @@ Client code can then import lexical subs from the module:
         chomp ...;
     }
 
-    foo(...);  # runtime error: Undefined subroutine &main::foo
+    foo(...);  # compile-time error: Undefined subroutine &main::foo
     chomp ...; # builtin
 
 =head2 unimport
@@ -321,12 +511,12 @@ if no arguments are supplied.
 
         no mysubs qw(foo);
 
-        foo ...;  # runtime error: Undefined subroutine &main::foo
+        foo ...;  # compile-time error: Undefined subroutine &main::foo
 
         no mysubs;
 
-        bar(...); # runtime error: Undefined subroutine &main::bar
-        baz;      # runtime error: Undefined subroutine &main::baz
+        bar(...); # compile-time error: Undefined subroutine &main::bar
+        baz;      # compile-time error: Undefined subroutine &main::baz
     }
 
     foo ...; # ok
@@ -344,31 +534,12 @@ C<mysubs> inherit an C<unimport> method that only removes the subs they installe
 
         no MyPragma qw(foo); # unimports foo
         no MyPragma;         # unimports bar and baz
-
         no mysubs;           # unimports quux
     }
 
-=head1 CAVEATS
-
-=over
-
-=item * Lexical (i.e. private) methods are not currently implemented e.g.
-
-    package Foo;
-
-    use mysubs bar => sub { ... };
-
-    sub new { ... }
-
-    my $self = __PACKAGE__->new();
-
-    $self->bar(); # doesn't work
-
-=back
-
 =head1 VERSION
 
-0.20
+1.00
 
 =head1 SEE ALSO
 
@@ -376,14 +547,14 @@ C<mysubs> inherit an C<unimport> method that only removes the subs they installe
 
 =item * L<Subs::Lexical|Subs::Lexical>
 
-=item * L<Devel::Pragma|Devel::Pragma>
+=item * L<Method::Lexical|Method::Lexical>
 
 =back
 
 =head1 AUTHOR
 
-chocolateboy <chocolate.boy@email.com>, with thanks to phaylon (Robert Sedlacek),
-mst (Matt S Trout) and Paul Fenwick for the idea.
+chocolateboy <chocolate@cpan.org>, with thanks to mst (Matt S Trout), phaylon (Robert Sedlacek),
+and Paul Fenwick for the idea.
 
 =head1 COPYRIGHT AND LICENSE
 

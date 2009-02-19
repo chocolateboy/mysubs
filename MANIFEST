@@ -5,13 +5,20 @@ MANIFEST			This list of files
 META.yml
 mysubs.xs
 ppport.h
-ptable.h
 README
 t/01_use.t
 t/basic.t
 t/builtins.t
+t/glob.pl
+t/mysubs1.pm
+t/mysubs1.t
+t/mysubs2.pm
+t/mysubs2.t
+t/pod.t
+t/prototype.t
 t/ref.t
 t/require.t
+t/runtime.t
 t/subclass.t
 t/test_1.pm
 t/test_2.pm
@@ -20,3 +27,4 @@ t/test_4.pm
 t/test_5.pm
 t/test_6.pm
 t/unimport.t
+typemap

@@ -1,5 +1,13 @@
 Revision history for Perl extension mysubs.
 
+1.00  Thu Feb 19 17:42:12 2009
+    - added support for prototype()
+        - prototype.t
+    - rewrite import and unimport to fix various bugs
+        - added mysubs1.t
+        - added mysubs2.t
+    - code cleanup via B::Hooks::OP::Check and B::Hooks::OP::Annotation
+
 0.20  Tue Jan 6 20:08:52 2009
     - Fix broken end-of-scope handling in perl 5.10 by replacing Scope::Guard with B::Hooks::EndOfScope
       (rafl++)

@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 13;
+use Test::More tests => 16;
 
 my $error = qr{^Undefined subroutine &main::test called at};
 
@@ -38,7 +38,13 @@ ok(not(defined &test), 'not defined in previous scope');
 
         test 'redefine';
         test('redefine with parens');
+
+        use mysubs 'Foo::Bar::baz' => sub { pass('fully-qualified name works') };
+        Foo::Bar::baz;
     }
+
+    ok(not(defined &concat), "prototyped sub doesn't lrak into an outer scope");
+    ok(not(defined &Foo::Bar::baz), "fully-qualified name doesn't leak into an outer scope");
 
     test 'scope again';
     test('scope again with parens');
