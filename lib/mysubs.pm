@@ -18,7 +18,7 @@ use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
 use XSLoader;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
@@ -146,30 +146,20 @@ sub glob_install($$) {
 # for each lexical sub, import() creates or augments a hash that stores globs in the UNDO and REDO slots.
 # these globs represent the before and after state of the glob corresponding to the supplied
 # (fully-qualified) sub name. The UNDO glob is the glob prior to any declaration of a lexical
-# sub with that name, and the REDO glob is the currently-active glob, with the most-recenly
+# sub with that name, and the REDO glob is the currently-active glob, with the most-recently
 # defined lexical sub in its CODE slot.
 #
-# This data is used to support compile-time requires; install uninstalls the current globs (UNDO),
-# calls the original require(), then reinstalls the globs (REDO). this ensures lexical subs don't
-# leak across file boundaries
+# This data is used to clean up around compile-time requires: install is called to uninstall the
+# current globs (UNDO); require() is called; then install is called again to reinstall the active
+# globs (REDO). this ensures lexical subs don't leak across file boundaries if the current package
+# is re-opened in a required file
 
 sub install($$) {
     my ($installed, $action_id) = @_;
-    my $runtime = xs_runtime();
 
     for my $fqname (keys %$installed) {
         my $action = [ 'uninstalling', 'installing' ]->[$action_id];
         my $old_glob = glob_install($fqname, $installed->{$fqname}->[$action_id]);
-
-        # at runtime, make a note of the glob we're supplanting so that it
-        # (i.e. the runtime UNDO rather than the compile-time UNDO) can be restored
-        #
-        # we don't need the compile-time UNDO anymore, so that slot is as good a place
-        # as any to store the runtime UNDO
-
-        if ($runtime && ($action_id == REDO)) {
-            $installed->{$fqname}->[UNDO] = $old_glob;
-        }
 
         debug('mysubs', $action, $fqname, $old_glob, $installed->{$fqname}->[$action_id]) if ($DEBUG);
     }
@@ -539,7 +529,7 @@ C<mysubs> inherit an C<unimport> method that only removes the subs they installe
 
 =head1 VERSION
 
-1.00
+1.01
 
 =head1 SEE ALSO
 

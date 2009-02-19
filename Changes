@@ -1,5 +1,9 @@
 Revision history for Perl extension mysubs.
 
+1.01  Thu Feb 19 19:50:12 2009
+    - rm unused code
+    - refix META.yml
+
 1.00  Thu Feb 19 17:42:12 2009
     - added support for prototype()
         - prototype.t

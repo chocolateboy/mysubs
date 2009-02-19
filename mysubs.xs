@@ -189,14 +189,6 @@ xs_set_debug(SV * dbg)
     CODE:
         MYSUBS_DEBUG = SvIV(dbg);
 
-SV *
-xs_runtime()
-    PROTOTYPE:
-    CODE:
-        RETVAL = newSViv(!MYSUBS_COMPILING);
-    OUTPUT:
-        RETVAL
-
 void 
 xs_cache(SV* sv)
     PROTOTYPE:$

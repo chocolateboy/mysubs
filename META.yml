@@ -1,18 +1,19 @@
 --- #YAML:1.0
 name:               mysubs
-version:            1.00
+version:            1.01
 abstract:           lexical subroutines
 author:
     - chocolateboy <chocolate@cpan.org>
 license:            perl
 distribution_type:  module
 configure_requires:
+    ExtUtils::Depends:    0.301
     ExtUtils::MakeMaker:  0
 requires:
     B::Hooks::EndOfScope:  0.06
     B::Hooks::OP::Annotation:  0.31
     B::Hooks::OP::Check:  0.15
-    Devel::Pragma:        0.51
+    Devel::Pragma:        0.52
 no_index:
     directory:
         - t
