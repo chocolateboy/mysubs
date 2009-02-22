@@ -1,6 +1,6 @@
 package mysubs;
 
-use 5.008;
+use 5.008001;
 
 use strict;
 use warnings;
@@ -18,7 +18,7 @@ use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
 use XSLoader;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
@@ -274,6 +274,7 @@ sub import {
 
         # disable mysubs altogether when we leave the top-level scope in which it was enabled
         # XXX this must be done here i.e. *after* the scope restoration handler
+        # on_scope_end \&xs_leave if ($top_level);
         on_scope_end \&xs_leave if ($top_level);
     } else {
         $installed = $hints->{$MYSUBS}; # augment
@@ -457,7 +458,7 @@ e.g.
 
 =head2 import
 
-C<mysub::import> can be called indirectly via C<use mysubs> or can be overridden by subclasses to create
+C<mysubs::import> can be called indirectly via C<use mysubs> or can be overridden by subclasses to create
 lexically-scoped pragmas that export subroutines whose use is restricted to the calling scope e.g.
 
     package MyPragma;
@@ -527,15 +528,19 @@ C<mysubs> inherit an C<unimport> method that only removes the subs they installe
         no mysubs;           # unimports quux
     }
 
+=head1 CAVEATS
+
+Lexical AUTOLOAD subroutines are not currently supported.
+
 =head1 VERSION
 
-1.01
+1.02
 
 =head1 SEE ALSO
 
 =over
 
-=item * L<Subs::Lexical|Subs::Lexical>
+=item * L<Sub::Lexical|Sub::Lexical>
 
 =item * L<Method::Lexical|Method::Lexical>
 
