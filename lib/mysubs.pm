@@ -18,7 +18,7 @@ use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
 use XSLoader;
 
-our $VERSION = '1.02';
+our $VERSION = '1.10';
 our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
@@ -62,7 +62,7 @@ sub glob_id($) {
 # a new hash to ensure that previous bindings aren't clobbered e.g.
 #
 #   {
-#       package Foo;
+#        package Foo;
 #
 #        use mysubs bar => sub { ... };
 #
@@ -219,6 +219,7 @@ sub import {
             # when a compile-time require (or do FILE) is performed, uninstall all
             # lexical subs (UNDO) and the check handler (xs_leave) beforehand,
             # and reinstate the lexical subs and check handler afterwards
+
             on_require(
                 sub { my $hash = shift; install($hash->{$MYSUBS}, UNDO); xs_leave() },
                 sub { my $hash = shift; install($hash->{$MYSUBS}, REDO); xs_enter() }
@@ -274,7 +275,6 @@ sub import {
 
         # disable mysubs altogether when we leave the top-level scope in which it was enabled
         # XXX this must be done here i.e. *after* the scope restoration handler
-        # on_scope_end \&xs_leave if ($top_level);
         on_scope_end \&xs_leave if ($top_level);
     } else {
         $installed = $hints->{$MYSUBS}; # augment
@@ -384,28 +384,28 @@ mysubs - lexical subroutines
 
     {
         use mysubs
-          foo      => sub ($) { ... },          # anonymous sub value
-          bar      => \&bar,                    # code ref value
-          chomp    => 'main::mychomp',          # sub name value
-          dump     => '+Data::Dumper::Dumper',  # autoload Data::Dumper
-         'My::foo' => \&foo,                    # package-qualified sub name
-         -autoload => 1,                        # autoload all subs passed by name
-         -debug    => 1                         # show diagnostic messages
+            foo      => sub ($) { ... },       # anonymous sub value
+            bar      => \&bar,                 # code ref value
+            chomp    => 'main::mychomp',       # sub name value
+            dump     => '+Data::Dumper::dump', # load Data::Dump
+           'My::foo' => \&foo,                 # package-qualified sub name
+           -autoload => 1,                     # load modules for all subs passed by name
+           -debug    => 1                      # show diagnostic messages
         ;
 
-        foo(...);        # OK
-        prototype('foo') # '$'
-        My::foo(...);    # OK
-        bar;             # OK
-        chomp ...;       # override builtin
-        dump ...;        # override builtin
+        foo(...);                              # OK
+        prototype('foo')                       # '$'
+        My::foo(...);                          # OK
+        bar;                                   # OK
+        chomp ...;                             # override builtin
+        dump ...;                              # override builtin
     }
 
-    foo(...);            # compile-time error: Undefined subroutine &main::foo
-    My::foo(...);        # compile-time error: Undefined subroutine &My::foo
-    prototype('foo')     # undef
-    chomp ...;           # builtin
-    dump ...;            # builtin
+    foo(...);                                  # error: Undefined subroutine &main::foo
+    My::foo(...);                              # error: Undefined subroutine &My::foo
+    prototype('foo')                           # undef
+    chomp ...;                                 # builtin
+    dump ...;                                  # builtin
 
 =head1 DESCRIPTION
 
@@ -442,6 +442,14 @@ or
          bar => '+MyBar::bar', # autoload MyBar
          baz =>  'MyBaz::baz';
 
+The C<-autoload> option should not be confused with lexical C<AUTOLOAD> subroutines, which are also supported. e.g.
+
+    use mysubs AUTOLOAD => sub { ... };
+
+    foo(); # OK - AUTOLOAD
+    bar(); # ditto
+    baz(); # ditto
+
 =head2 -debug
 
 A trace of the module's actions can be enabled or disabled lexically by supplying the C<-debug> option
@@ -467,7 +475,11 @@ lexically-scoped pragmas that export subroutines whose use is restricted to the 
 
     sub import {
         my $class = shift;
-        $class->SUPER::import(foo => sub { ... }, chomp => \&mychomp, UNIVERSAL::bar => 'My::bar');
+
+        $class->SUPER::import(
+             foo   => sub { ... },
+             chomp => \&mychomp
+        );
     }
 
 Client code can then import lexical subs from the module:
@@ -481,7 +493,7 @@ Client code can then import lexical subs from the module:
         chomp ...;
     }
 
-    foo(...);  # compile-time error: Undefined subroutine &main::foo
+    foo(...);  # error: Undefined subroutine &main::foo
     chomp ...; # builtin
 
 =head2 unimport
@@ -502,12 +514,12 @@ if no arguments are supplied.
 
         no mysubs qw(foo);
 
-        foo ...;  # compile-time error: Undefined subroutine &main::foo
+        foo ...;  # error: Undefined subroutine &main::foo
 
         no mysubs;
 
-        bar(...); # compile-time error: Undefined subroutine &main::bar
-        baz;      # compile-time error: Undefined subroutine &main::baz
+        bar(...); # error: Undefined subroutine &main::bar
+        baz;      # error: Undefined subroutine &main::baz
     }
 
     foo ...; # ok
@@ -530,11 +542,39 @@ C<mysubs> inherit an C<unimport> method that only removes the subs they installe
 
 =head1 CAVEATS
 
-Lexical AUTOLOAD subroutines are not currently supported.
+Lexical subs cannot be called by symbolic reference e.g.
+
+This works:
+
+    use mysubs
+        foo      => sub { ... }, 
+        AUTOLOAD => sub { ... }
+    ;
+
+    my $foo = \&foo;
+
+    foo();    # OK - named
+    bar();    # OK - AUTOLOAD
+    $foo->(); # OK - reference
+
+This doesn't work:
+
+    use mysubs
+        foo      => sub { ... }, 
+        AUTOLOAD => sub { ... }
+    ;
+
+    my $foo = 'foo';
+    my $bar = 'bar';
+
+    no strict 'refs';
+
+    &{$foo}(); # not foo
+    &{$bar}(); # not AUTOLOAD
 
 =head1 VERSION
 
-1.02
+1.10
 
 =head1 SEE ALSO
 
