@@ -31,7 +31,7 @@ for my $i (1 .. 2) {
 
         if ($i == 1) {
             is_deeply(bar(), [ 'main::bar' ], 'bar autoloaded in nested scope');
-            is_deeply(bar(42), [ 'main::bar', 42 ], 'bar with arguments autoloaded in nnested scope');
+            is_deeply(bar(42), [ 'main::bar', 42 ], 'bar with arguments autoloaded in nested scope');
         } else {
             is(bar(), 'bar!', 'bar still defined in nested scope');
         }

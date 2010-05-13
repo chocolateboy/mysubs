@@ -8,7 +8,7 @@ use Test::More tests => 27;
 our @WARNINGS;
 
 BEGIN { require mysubs; mysubs::start_trace() }
-BEGIN { $SIG{__WARN__} = sub { push @WARNINGS, join('', @_) } }
+BEGIN { $SIG{__WARN__} = sub { my $warning = join '', @_; push (@WARNINGS, $warning) if ($warning =~ /^mysubs: /) } }
 
 BEGIN { is(prototype('Foo::Bar::concat'), undef, '"Foo::Bar::concat" not prototyped in previous scope (compile-time)') }
 is(prototype('Foo::Bar::concat'), undef, '"Foo::Bar::concat" not prototyped in previous scope (runtime)');

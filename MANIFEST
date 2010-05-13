@@ -10,7 +10,7 @@ t/01_use.t
 t/autoload.t
 t/basic.t
 t/builtins.t
-t/glob.pl
+t/glob.t
 t/mysubs1.pm
 t/mysubs1.t
 t/mysubs2.pm
@@ -20,6 +20,7 @@ t/prototype.t
 t/ref.t
 t/require.t
 t/runtime.t
+t/shadow.t
 t/subclass.t
 t/test_1.pm
 t/test_2.pm

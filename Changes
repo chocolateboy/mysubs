@@ -1,5 +1,12 @@
 Revision history for Perl extension mysubs.
 
+1.11  Thu May 13 06:12:36 2010
+    - rename/add glob-clobbering test: glob.t
+    - add shadow.t to verify lexical shadowing
+    - update ppport.h
+    - update dependency versions
+    - fix synopsis
+
 1.10  Mon Feb 23 13:34:48 2009
     - support lexical AUTOLOAD subs
         - added autoload.t

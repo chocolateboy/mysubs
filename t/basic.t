@@ -43,7 +43,7 @@ ok(not(defined &test), 'not defined in previous scope');
         Foo::Bar::baz;
     }
 
-    ok(not(defined &concat), "prototyped sub doesn't lrak into an outer scope");
+    ok(not(defined &concat), "prototyped sub doesn't leak into an outer scope");
     ok(not(defined &Foo::Bar::baz), "fully-qualified name doesn't leak into an outer scope");
 
     test 'scope again';

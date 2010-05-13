@@ -3,6 +3,7 @@
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
+#define NEED_sv_2pv_flags
 #include "ppport.h"
 
 #include "hook_op_check.h"
@@ -36,7 +37,6 @@ typedef struct {
 
 STATIC CV * mysubs_get_cv(pTHX_ SV *rv);
 STATIC MySubsData * mysubs_data_new(pTHX_ SV * const fqname, const char *name, STRLEN len, CV *cv);
-STATIC OP * mysubs_check_entersub(pTHX_ OP * o, void * user_data);
 STATIC OP * mysubs_check_entersub(pTHX_ OP * o, void * user_data);
 STATIC OP * mysubs_check_prototype(pTHX_ OP * o, void * user_data);
 STATIC OP * mysubs_gv(pTHX);
@@ -97,6 +97,49 @@ STATIC OP * mysubs_check_entersub(pTHX_ OP * o, void * user_data) {
         if (cvop->op_type == OP_GV) {
             SVOP *gvop = (SVOP *)cvop;
 
+            /*
+             * invocations of recursive and AUTOLOAD subs are compiled as GVOPs before
+             * perl has anything to fill the CV slot with
+             *
+             * in both cases we splice in our own version of OP_GV that (at runtime) a)
+             * uninstalls itself if the CV slot has been filled b) sets the CV slot to
+             * the lexical sub if one is found or c) locates the lexical AUTOLOAD sub
+             * if one was defined
+             *
+             * FIXME: document the fact that recursive/AUTOLOAD mysubs will only work if mysubs
+             * is already enabled i.e. if there has been a previous "use mysubs" statement
+             *
+             * FIXME:
+             *
+             *     use mysubs foo => sub { ... };
+             *     no mysubs;
+             *     foo();
+             *     use mysubs foo => sub { ... };
+             *
+             * XXX With runtime resolution of "early" lexical subs that foo() shouldn't work, but does.
+             * At least document this.
+             *
+             * recursion works fine when importing subs from a module because the imported subs
+             * can easily refer to themselves
+             *
+             * solution: add support for a keyword e.g. "private" or "mysub"
+             * with a keyword like "private" or "mysub" we can easily stop parsing after the word 
+             * and turn on the mysubs pragma for subsequent literals e.g.
+             *
+             *     private AUTOSUB { ... }
+             *
+             * becomes:
+             *
+             *     use mysubs; use mysubs AUTOSUB => sub { ... };
+             *
+             * So:
+             *
+             *     mysub foo () is recursive { }
+             *
+             * becomes:
+             *
+             *     use mysub foo => undef; use mysub foo { ... foo() }
+             */
             if (gvop->op_private & OPpEARLY_CV) {
                 char *fqname, *name;
                 STRLEN fqlen;
@@ -127,7 +170,7 @@ STATIC OP * mysubs_check_entersub(pTHX_ OP * o, void * user_data) {
                         MySubsData *data;
                         data = mysubs_data_new(aTHX_ fqname_sv, name, fqlen - (name - fqname), cv);
                         /* warn("annotating gvop for %s", fqname); */
-                        (void)op_annotation_new(MYSUBS_ANNOTATIONS, (OP *)gvop, data, mysubs_data_free);
+                        op_annotate(MYSUBS_ANNOTATIONS, (OP *)gvop, data, mysubs_data_free);
                         gvop->op_ppaddr = mysubs_gv;
                     }
                 } else {
@@ -145,7 +188,8 @@ STATIC OP *mysubs_gv(pTHX) {
     OPAnnotation *annotation = op_annotation_get(MYSUBS_ANNOTATIONS, PL_op);
 
     if (GvCV(cGVOP_gv)) {
-        PL_op->op_ppaddr = annotation->op_ppaddr;
+        PL_op->op_ppaddr = annotation->op_ppaddr; /* XXX use the annotation *before* deleting it! */
+        op_annotation_delete(aTHX_ MYSUBS_ANNOTATIONS, PL_op);
         return CALL_FPTR(PL_op->op_ppaddr)(aTHX);
     } else {
         MySubsData *data = annotation->data;
@@ -241,8 +285,7 @@ STATIC OP * mysubs_check_prototype(pTHX_ OP * o, void * user_data) {
      * but it may change in future, or another module may change the OP
      */
     if ((o->op_type == OP_PROTOTYPE) && MYSUBS_ENABLED(table, svp)) {
-        /* (void)op_annotation_new(MYSUBS_ANNOTATIONS, o, SvRV(*svp), mysubs_hv_free); */
-        (void)op_annotation_new(MYSUBS_ANNOTATIONS, o, SvRV(*svp), NULL);
+        op_annotate(MYSUBS_ANNOTATIONS, o, SvRV(*svp), NULL);
         o->op_ppaddr = mysubs_prototype;
     }
 
@@ -353,7 +396,7 @@ STATIC void mysubs_leave() {
 MODULE = mysubs                PACKAGE = mysubs                
 
 BOOT:
-    if (getenv("MYSUBS_DEBUG")) {
+    if (getenv("PERL_MYSUBS_DEBUG")) {
         MYSUBS_DEBUG = 1;
     }
 

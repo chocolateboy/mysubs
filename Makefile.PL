@@ -10,8 +10,8 @@ use Config;
 our $OPTIMIZE;
 
 if ($Config{gccversion}) {
-    $OPTIMIZE = '-O3 -Wall -Wextra -Wdeclaration-after-statement';
-    $OPTIMIZE .= ' -g' if (-d '.svn');
+    $OPTIMIZE = '-O3 -Wall -W';
+    $OPTIMIZE .= ' -g -Wdeclaration-after-statement' if (-d 'dev');
 } elsif ($Config{osname} eq 'MSWin32') {
     $OPTIMIZE = '-O2 -W4';
 } else {
@@ -19,8 +19,8 @@ if ($Config{gccversion}) {
 }
 
 our %XS_PREREQUISITES = (
-    'B::Hooks::OP::Annotation' => '0.32',
-    'B::Hooks::OP::Check'      => '0.15',
+    'B::Hooks::OP::Annotation' => '0.43',
+    'B::Hooks::OP::Check'      => '0.18',
 );
 
 our %XS_DEPENDENCIES = ExtUtils::Depends->new('mysubs', keys(%XS_PREREQUISITES))->get_makefile_vars();
@@ -29,7 +29,7 @@ WriteMakefile(
     NAME          => 'mysubs',
     VERSION_FROM  => 'lib/mysubs.pm',
     PREREQ_PM => {
-        'B::Hooks::EndOfScope' => '0.07',
+        'B::Hooks::EndOfScope' => '0.09',
         'Devel::Pragma'        => '0.53',
         %XS_PREREQUISITES
     },
@@ -42,7 +42,7 @@ WriteMakefile(
     ($ExtUtils::MakeMaker::VERSION >= 6.46 ?
         (META_MERGE => {
             configure_requires => {
-                'ExtUtils::Depends' => '0.301',
+                'ExtUtils::Depends' => '0.302',
                 %XS_PREREQUISITES
             }})
         : ()

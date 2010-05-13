@@ -18,7 +18,7 @@ use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
 use XSLoader;
 
-our $VERSION = '1.10';
+our $VERSION = '1.11';
 our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
@@ -93,22 +93,16 @@ sub pcroak(@) {
 # load a perl module
 sub load($) {
     my $symbol = shift;
-    my $module = _split($symbol)->[0];
+    my $module = (fqname $symbol)[0];
     eval "require $module";
     pcroak "can't load $module: $@" if ($@);
-}
-
-# split "Foo::Bar::baz" into the stash (Foo::Bar) and the name (baz)
-sub _split($) {
-    my @split = $_[0] =~ /^(.*)::([^:]+)$/; 
-    return wantarray ? @split : \@split;
 }
 
 # install a clone of the current typeglob for the supplied symbol and add a new CODE entry
 # mst++ and phaylon++ for this idea
 sub install_sub($$) {
     my ($symbol, $sub) = @_;
-    my ($stash, $name) = _split($symbol);
+    my ($stash, $name) = fqname($symbol);
 
     no strict 'refs';
 
@@ -130,7 +124,7 @@ sub install_sub($$) {
 # restore the typeglob that existed before the lexical sub was defined - or delete it if it didn't exist
 sub glob_install($$) {
     my ($symbol, $glob) = @_;
-    my ($stash, $name) = _split($symbol);
+    my ($stash, $name) = fqname($symbol);
 
     no strict 'refs';
 
@@ -170,10 +164,10 @@ sub install($$) {
 # import() has to keep track of three things:
 #
 # 1) $installed keeps track of *all* currently active lexical subs so that they can be
-#    uninstalled before require() and reinstalled afterwards
+#    uninstalled before (compile-time) require() and reinstalled afterwards
 # 2) $restore keeps track of *all* active lexical subs in the outer scope
 #    so that they can be restored at the end of the current scope
-# 3) $mysubs keeps track of which subs have been installed by this class (which may be a subclass of
+# 3) $unimport keeps track of which subs have been installed by *this* class (which may be a subclass of
 #    mysubs) in this scope, so that they can be unimported with "no MyPragma (...)"
 #
 # In theory, restoration is done in two passes, the first over $installed and the second over $restore:
@@ -189,7 +183,7 @@ sub install($$) {
 sub import {
     my ($class, %bindings) = @_;
 
-    return unless (%bindings);
+    # return unless (%bindings);
 
     my $autoload = delete $bindings{-autoload};
     my $debug = delete $bindings{-debug};
@@ -217,13 +211,14 @@ sub import {
             $installed = $hints->{$MYSUBS} = {}; # create
 
             # when a compile-time require (or do FILE) is performed, uninstall all
-            # lexical subs (UNDO) and the check handler (xs_leave) beforehand,
-            # and reinstate the lexical subs and check handler afterwards
+            # lexical subs (UNDO) and the check hook (xs_leave) beforehand,
+            # and reinstate the lexical subs and check hook afterwards
 
             on_require(
                 sub { my $hash = shift; install($hash->{$MYSUBS}, UNDO); xs_leave() },
                 sub { my $hash = shift; install($hash->{$MYSUBS}, REDO); xs_enter() }
             );
+
             xs_enter();
         }
 
@@ -280,22 +275,23 @@ sub import {
         $installed = $hints->{$MYSUBS}; # augment
     }
 
-    # Note the class-specific data is stored under a mysubs-flavoured name rather than the
-    # unadorned class name. The subclass might well have its owne uses for $^H{$class}, so we keep
-    # our mitts off it
+    # Note: the class-specific unimport data is stored under a mysubs-flavoured name (e.g. "mysubs(MyPragma)")
+    # rather than the unadorned class name (e.g. "MyPragma"). The subclass might well have its own
+    # uses for $^H{$class}, so we keep our mitts off it
     #
-    # Also, the unadorned class can't be used as a class if $MYSUBS is 'mysubs' (which
-    # it is) as the two uses conflict with and clobber each other
+    # Also, the unadorned class name can't be used as the unimport key if the class being used is mysubs
+    # itself (i.e. "use mysubs qw(...)" rather than "use MyPragma qw(...)") because
+    # "mysubs" is already spoken for as the installed hash key ($MYSUBS)
 
     my $subclass = "$MYSUBS($class)";
-    my $mysubs;
+    my $unimport;
 
     # never use the $class as the identifier for new_scope() - see above
     if (new_scope($subclass)) {
-        $mysubs = $hints->{$subclass};
-        $mysubs = $hints->{$subclass} = $mysubs ? { %$mysubs } : {}; # clone/create
+        my $temp = $hints->{$subclass};
+        $unimport = $hints->{$subclass} = $temp ? { %$temp } : {}; # clone/create
     } else {
-        $mysubs = $hints->{$subclass}; # augment
+        $unimport = $hints->{$subclass}; # augment
     }
 
     for my $name (keys %bindings) {
@@ -323,7 +319,7 @@ sub import {
             $installed->{$fqname}->[REDO] = $new;
         }
 
-        $mysubs->{$fqname} = $new;
+        $unimport->{$fqname} = $new;
     }
 }
    
@@ -332,21 +328,21 @@ sub unimport {
     my $class = shift;
     my $hints = my_hints;
     my $subclass = "$MYSUBS($class)";
-    my $mysubs;
+    my $unimport;
 
-    return unless (($^H & 0x20000) && ($mysubs = $hints->{$subclass}));
+    return unless (($^H & 0x20000) && ($unimport = $hints->{$subclass}));
 
     my $caller = ccstash();
-    my @subs = @_ ? (map { scalar(fqname($_, $caller)) } @_) : keys(%$mysubs);
+    my @subs = @_ ? (map { scalar(fqname($_, $caller)) } @_) : keys(%$unimport);
     my $installed = $hints->{$MYSUBS};
     my $new_installed = clone($installed);
     my $deleted = 0;
 
     for my $fqname (@subs) {
-        my $glob = $mysubs->{$fqname};
+        my $glob = $unimport->{$fqname};
 
         if ($glob) { # the glob this module/subclass installed
-            # if the current glob ($installed->{$fqname}->[REDO]) is the glob this module installed ($mysubs->{$fqname})
+            # if the current glob ($installed->{$fqname}->[REDO]) is the glob this module installed ($unimport->{$fqname})
             if (xs_glob_eq($glob, $installed->{$fqname}->[REDO])) {
                 my $old = $installed->{$fqname}->[REDO];
                 my $new = $installed->{$fqname}->[UNDO];
@@ -356,7 +352,7 @@ sub unimport {
 
                 # what import adds, unimport taketh away
                 delete $new_installed->{$fqname};
-                delete $mysubs->{$fqname};
+                delete $unimport->{$fqname};
 
                 ++$deleted;
             } else {
@@ -382,39 +378,70 @@ mysubs - lexical subroutines
 
 =head1 SYNOPSIS
 
-    {
-        use mysubs
-            foo      => sub ($) { ... },       # anonymous sub value
-            bar      => \&bar,                 # code ref value
-            chomp    => 'main::mychomp',       # sub name value
-            dump     => '+Data::Dumper::dump', # load Data::Dump
-           'My::foo' => \&foo,                 # package-qualified sub name
-           -autoload => 1,                     # load modules for all subs passed by name
-           -debug    => 1                      # show diagnostic messages
-        ;
+    package MyPragma;
 
-        foo(...);                              # OK
-        prototype('foo')                       # '$'
-        My::foo(...);                          # OK
-        bar;                                   # OK
-        chomp ...;                             # override builtin
-        dump ...;                              # override builtin
+    use base qw(mysubs);
+
+    sub import {
+        my $class = shift;
+
+        $class->SUPER::import(
+             foo   => sub { ... },
+             chomp => \&mychomp
+        );
     }
 
-    foo(...);                                  # error: Undefined subroutine &main::foo
-    My::foo(...);                              # error: Undefined subroutine &My::foo
-    prototype('foo')                           # undef
-    chomp ...;                                 # builtin
-    dump ...;                                  # builtin
+=cut
+
+=pod
+
+    #!/usr/bin/env perl
+
+    {
+        use MyPragma;
+
+        foo(...);
+        chomp ...;
+    }
+
+    foo(...);  # error: Undefined subroutine &main::foo
+    chomp ...; # builtin
 
 =head1 DESCRIPTION
 
 C<mysubs> is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines
-whose use is restricted to the lexical scope in which they are declared.
+whose use is restricted to the lexical scope in which they are imported or declared.
 
 The C<use mysubs> statement takes a list of key/value pairs in which the keys are subroutine
 name and the values are subroutine references or strings containing the package-qualified names
 of the subroutines. In addition, C<mysubs> options may be passed.
+
+The following example summarizes the type of keys and values that can be supplied.
+
+    {
+        use mysubs
+            foo      => sub ($) { ... },     # anonymous sub value
+            bar      => \&bar,               # code ref value
+            chomp    => 'main::mychomp',     # sub name value
+            dump     => '+Data::Dump::dump', # load Data::Dump
+           'My::foo' => \&foo,               # package-qualified sub name
+           -autoload => 1,                   # load modules for all sub name values
+           -debug    => 1                    # show diagnostic messages
+        ;
+
+        foo(...);                            # OK
+        prototype('foo')                     # '$'
+        My::foo(...);                        # OK
+        bar;                                 # OK
+        chomp ...;                           # override builtin
+        dump ...;                            # override builtin
+    }
+
+    foo(...);                                # error: Undefined subroutine &main::foo
+    My::foo(...);                            # error: Undefined subroutine &My::foo
+    prototype('foo')                         # undef
+    chomp ...;                               # builtin
+    dump ...;                                # builtin
 
 =head1 OPTIONS
 
@@ -574,7 +601,7 @@ This doesn't work:
 
 =head1 VERSION
 
-1.10
+1.11
 
 =head1 SEE ALSO
 
@@ -593,7 +620,7 @@ and Paul Fenwick for the idea.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2008-2009 by chocolateboy
+Copyright (C) 2008-2010 by chocolateboy
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.8 or,
