@@ -18,7 +18,7 @@ use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
 use XSLoader;
 
-our $VERSION = '1.11';
+our $VERSION = '1.12';
 our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
@@ -180,8 +180,8 @@ sub install($$) {
 # elements of $restore that were removed (via unimport) from $installed. This reduces the overhead
 # of the second pass so that it doesn't redundantly traverse elements covered by the first pass.
 
-sub import {
-    my ($class, %bindings) = @_;
+sub import_for {
+    my ($class, $namespace, %bindings) = @_;
 
     # return unless (%bindings);
 
@@ -275,18 +275,18 @@ sub import {
         $installed = $hints->{$MYSUBS}; # augment
     }
 
-    # Note: the class-specific unimport data is stored under a mysubs-flavoured name (e.g. "mysubs(MyPragma)")
+    # Note: the namespace-specific unimport data is stored under a mysubs-flavoured name (e.g. "mysubs(MyPragma)")
     # rather than the unadorned class name (e.g. "MyPragma"). The subclass might well have its own
-    # uses for $^H{$class}, so we keep our mitts off it
+    # uses for $^H{$namespace}, so we keep our mitts off it
     #
-    # Also, the unadorned class name can't be used as the unimport key if the class being used is mysubs
+    # Also, the unadorned class name can't be used as the unimport key if the class being used is "mysubs"
     # itself (i.e. "use mysubs qw(...)" rather than "use MyPragma qw(...)") because
     # "mysubs" is already spoken for as the installed hash key ($MYSUBS)
 
-    my $subclass = "$MYSUBS($class)";
+    my $subclass = "$MYSUBS($namespace)";
     my $unimport;
 
-    # never use the $class as the identifier for new_scope() - see above
+    # never use the $namespace as the identifier for new_scope() - see above
     if (new_scope($subclass)) {
         my $temp = $hints->{$subclass};
         $unimport = $hints->{$subclass} = $temp ? { %$temp } : {}; # clone/create
@@ -322,12 +322,18 @@ sub import {
         $unimport->{$fqname} = $new;
     }
 }
+
+sub import {
+    my $class = shift; # ignore invocant
+    $class->import_for($class, @_);
+}
    
 # uninstall one or more lexical subs from the current scope
-sub unimport {
+sub unimport_for {
     my $class = shift;
+    my $namespace = shift;
     my $hints = my_hints;
-    my $subclass = "$MYSUBS($class)";
+    my $subclass = "$MYSUBS($namespace)";
     my $unimport;
 
     return unless (($^H & 0x20000) && ($unimport = $hints->{$subclass}));
@@ -356,16 +362,21 @@ sub unimport {
 
                 ++$deleted;
             } else {
-                carp "$class: attempt to unimport a shadowed lexical sub: $fqname";
+                carp "$namespace: attempt to unimport a shadowed lexical sub: $fqname";
             }
         } else {
-            carp "$class: attempt to unimport an undefined lexical sub: $fqname";
+            carp "$namespace: attempt to unimport an undefined lexical sub: $fqname";
         }
     }
 
     if ($deleted) {
         xs_cache($hints->{$MYSUBS} = $new_installed);
     }
+}
+
+sub unimport {
+    my $class = shift;
+    $class->unimport_for($class, @_);
 }
 
 1;
@@ -413,7 +424,7 @@ C<mysubs> is a lexically-scoped pragma that implements lexical subroutines i.e. 
 whose use is restricted to the lexical scope in which they are imported or declared.
 
 The C<use mysubs> statement takes a list of key/value pairs in which the keys are subroutine
-name and the values are subroutine references or strings containing the package-qualified names
+names and the values are subroutine references or strings containing the package-qualified names
 of the subroutines. In addition, C<mysubs> options may be passed.
 
 The following example summarizes the type of keys and values that can be supplied.
@@ -523,6 +534,58 @@ Client code can then import lexical subs from the module:
     foo(...);  # error: Undefined subroutine &main::foo
     chomp ...; # builtin
 
+The C<import> method is implemented as a wrapper around C<L<import_for|/import_for>>.
+
+=head2 import_for
+
+C<mysubs> methods are installed and uninstalled for a particular client of the C<mysubs> library.
+Typically, this client is identified by its class name i.e. the first argument passed
+to the C<L<mysubs::import|/import>> method. Note: if C<mysubs-E<gt>import> is called implicitly (via C<use mysubs ...>)
+or explicitly, then the client identifier is "mysubs" i.e. C<mysubs> can function as a client of itself.
+
+The C<import_for> method allows an identifier to be specified explicitly without subclassing C<mysubs> e.g.
+
+    package MyPragma;
+
+    use base qw(Whatever); # we can't/don't want to subclass mysubs
+
+    use mysubs (); # don't import anything
+
+    sub import {
+        my $class = shift;
+        $class->SUPER::import(...); # call Whatever::import
+        mysubs->import_for($class, foo => sub { ... }, ...);
+    }
+
+The installed subs can then be uninstalled by passing the same identifier to the
+C<L<unimport_for|/unimport_for>> method.
+
+Note that the C<import_for> identifier has nothing to do with the package the lexical subs will be
+installed into. Lexical subs are always installed into the package specified in the package-qualified sub name,
+or the package of the currently-compiling scope.
+
+C<mysubs-E<gt>import> is implemented as a call to C<mysubs-E<gt>import_for> i.e.
+
+    package MyPragma;
+
+    use base qw(mysubs);
+
+    sub import {
+        my $class = shift;
+        $class->SUPER::import(foo => sub { ... });
+    }
+
+- is equivalent to:
+
+    package MyPragma;
+
+    use mysubs ();
+
+    sub import {
+        my $class = shift;
+        mysubs->import_for($class, foo => sub { ... });
+    }
+
 =head2 unimport
 
 C<mysubs::unimport> removes the specified lexical subs from the current scope, or all lexical subs 
@@ -567,6 +630,34 @@ C<mysubs> inherit an C<unimport> method that only removes the subs they installe
         no mysubs;           # unimports quux
     }
 
+As with the C<L<import|/import>> method, C<unimport> is implemented as a wrapper around
+C<L<unimport_for|/unimport_for>>.
+
+=head2 unimport_for
+
+This method complements the C<L<import_for|/import_for>> method. i.e. it allows the identifier for a group of lexical
+subs to be specified explicitly. The identifier should match the one supplied in the
+corresponding C<import_for> method e.g.
+
+    package MyPragma;
+
+    use mysubs ();
+
+    sub import {
+        my $class = shift;
+        mysubs->import_for($class, foo => sub { ... });
+    }
+
+    sub unimport {
+        my $class = shift;
+        mysubs->unimport_for($class, @_);
+    }
+
+As with the C<import_for> method, the identifier is used to refer to a group of lexical
+subs, and has nothing to do with the package from which those subs will be uninstalled.
+As with the import methods, the unimport methods always operate on (i.e. uninstall lexical subs from)
+the package in the package-qualified sub name, or the package of the currently-compiling scope.
+
 =head1 CAVEATS
 
 Lexical subs cannot be called by symbolic reference e.g.
@@ -601,7 +692,7 @@ This doesn't work:
 
 =head1 VERSION
 
-1.11
+1.12
 
 =head1 SEE ALSO
 

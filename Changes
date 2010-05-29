@@ -1,5 +1,9 @@
 Revision history for Perl extension mysubs.
 
+1.12 Sat May 29 13:18:10 2010
+    - add import_for and unimport_for methods/docs (thanks Johan Lodin)
+        - add t/for.t
+
 1.11  Thu May 13 06:12:36 2010
     - rename/add glob-clobbering test: glob.t
     - add shadow.t to verify lexical shadowing

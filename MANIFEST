@@ -10,11 +10,13 @@ t/01_use.t
 t/autoload.t
 t/basic.t
 t/builtins.t
+t/for.t
 t/glob.t
 t/mysubs1.pm
 t/mysubs1.t
 t/mysubs2.pm
 t/mysubs2.t
+t/mysubs_for.pm
 t/pod.t
 t/prototype.t
 t/ref.t
