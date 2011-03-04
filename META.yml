@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               mysubs
-version:            1.13.
+version:            1.13
 abstract:           lexical subroutines
 author:
     - chocolateboy <chocolate@cpan.org>

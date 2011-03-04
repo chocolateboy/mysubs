@@ -18,7 +18,7 @@ use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
 use XSLoader;
 
-our $VERSION = '1.13.';
+our $VERSION = '1.13';
 our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
