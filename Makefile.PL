@@ -30,7 +30,7 @@ WriteMakefile(
     VERSION_FROM  => 'lib/mysubs.pm',
     PREREQ_PM => {
         'B::Hooks::EndOfScope' => '0.09',
-        'Devel::Pragma'        => '0.53',
+        'Devel::Pragma'        => '0.54',
         %XS_PREREQUISITES
     },
     ABSTRACT_FROM => 'lib/mysubs.pm',
@@ -39,14 +39,14 @@ WriteMakefile(
     DEFINE        => '',
     INC           => '-I.',
     OPTIMIZE      => $OPTIMIZE,
-    ($ExtUtils::MakeMaker::VERSION >= 6.46 ?
+    ($ExtUtils::MakeMaker::VERSION gt '6.46' ?
         (META_MERGE => {
             configure_requires => {
-                'ExtUtils::Depends' => '0.302',
+                'ExtUtils::Depends' => '0.304',
                 %XS_PREREQUISITES
             }})
         : ()
     ),
-    ($ExtUtils::MakeMaker::VERSION >= 6.31 ? (LICENSE => 'perl') : ()),
+    ($ExtUtils::MakeMaker::VERSION gt '6.31' ? (LICENSE => 'perl') : ()),
     %XS_DEPENDENCIES,
 );

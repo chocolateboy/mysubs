@@ -18,7 +18,7 @@ use Devel::Pragma qw(ccstash fqname my_hints new_scope on_require);
 use Scalar::Util;
 use XSLoader;
 
-our $VERSION = '1.12';
+our $VERSION = '1.13.';
 our @CARP_NOT = qw(B::Hooks::EndOfScope);
 
 XSLoader::load(__PACKAGE__, $VERSION);
@@ -692,7 +692,7 @@ This doesn't work:
 
 =head1 VERSION
 
-1.12
+1.13.
 
 =head1 SEE ALSO
 
@@ -711,7 +711,7 @@ and Paul Fenwick for the idea.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2008-2010 by chocolateboy
+Copyright (C) 2008-2011 by chocolateboy
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.8 or,

@@ -29,7 +29,7 @@
 #define MYSUBS_REDO 1
 
 typedef struct {
-    const SV * fqname;
+    SV * fqname;
     const char * name;
     STRLEN len;
     CV *cv;
@@ -123,7 +123,7 @@ STATIC OP * mysubs_check_entersub(pTHX_ OP * o, void * user_data) {
              * can easily refer to themselves
              *
              * solution: add support for a keyword e.g. "private" or "mysub"
-             * with a keyword like "private" or "mysub" we can easily stop parsing after the word 
+             * with a keyword like "private" or "mysub" we can easily stop parsing after the word
              * and turn on the mysubs pragma for subsequent literals e.g.
              *
              *     private AUTOSUB { ... }
@@ -179,7 +179,7 @@ STATIC OP * mysubs_check_entersub(pTHX_ OP * o, void * user_data) {
             }
         }
     }
-                    
+
     return o;
 }
 
@@ -218,13 +218,18 @@ STATIC void mysubs_set_autoload(pTHX_ const GV * const gv, const MySubsData *dat
          * pass along the same data via some unused fields in the CV
          */
 
+/* chocolateboy 2011-03-04: portability fix for perl 5.13 */
+#ifdef CvSTASH_set
+        CvSTASH_set(cv, GvSTASH(gv));
+#else
         CvSTASH(cv) = GvSTASH(gv);
+#endif
         SvPV_set(cv, (char *)data->name); /* cast to lose constness warning */
         SvCUR_set(cv, data->len);
         return;
     } else
 #endif
-    
+
     {
         HV* varstash;
         GV* vargv;
@@ -267,7 +272,11 @@ STATIC void mysubs_set_autoload(pTHX_ const GV * const gv, const MySubsData *dat
         sv_lock(varsv);
 #endif
 
-        sv_setpv(varsv, SvPVX(data->fqname));
+        /*
+         * Ensure SvSETMAGIC() is called if necessary. In particular, to clear
+         * tainting if $FOO::AUTOLOAD was previously tainted, but is not now.
+         */
+        sv_setpv_mg(varsv, SvPVX(data->fqname));
     }
 
     /* </copypasta> */
@@ -393,7 +402,7 @@ STATIC void mysubs_leave() {
     }
 }
 
-MODULE = mysubs                PACKAGE = mysubs                
+MODULE = mysubs                PACKAGE = mysubs
 
 BOOT:
     if (getenv("PERL_MYSUBS_DEBUG")) {
@@ -423,7 +432,7 @@ xs_set_debug(SV * dbg)
     CODE:
         MYSUBS_DEBUG = SvIV(dbg);
 
-void 
+void
 xs_cache(SV* sv)
     PROTOTYPE:$
     CODE:
