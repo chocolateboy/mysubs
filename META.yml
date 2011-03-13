@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               mysubs
-version:            1.13
+version:            1.14
 abstract:           lexical subroutines
 author:
     - chocolateboy <chocolate@cpan.org>
@@ -17,12 +17,14 @@ requires:
     B::Hooks::EndOfScope:  0.09
     B::Hooks::OP::Annotation:  0.43
     B::Hooks::OP::Check:  0.18
-    Devel::Pragma:        0.53
+    Devel::Pragma:        0.54
+resources:
+    repository:  http://github.com/chocolateboy/mysubs
 no_index:
     directory:
         - t
         - inc
-generated_by:       ExtUtils::MakeMaker version 6.56
+generated_by:       ExtUtils::MakeMaker version 6.55_02
 meta-spec:
     url:      http://module-build.sourceforge.net/META-spec-v1.4.html
     version:  1.4

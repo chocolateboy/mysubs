@@ -1,4 +1,4 @@
-mysubs version 1.13.
+mysubs version 1.14.
 ===================
 
 mysubs is a lexically-scoped pragma that implements lexical subroutines i.e. subroutines whose use

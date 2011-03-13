@@ -1,9 +1,13 @@
 Revision history for Perl extension mysubs.
 
-1.13 Fri Mar 4 01:55:57 2011
+1.14  Sun Mar 13 16:52:00 2011
+    - Makefile.PL fix
+    - add repo link
+
+1.13  Fri Mar 4 01:55:57 2011
     - portability fix - thanks, Andreas J. König
 
-1.12 Sat May 29 13:18:10 2010
+1.12  Sat May 29 13:18:10 2010
     - add import_for and unimport_for methods/docs (thanks Johan Lodin)
         - add t/for.t
 

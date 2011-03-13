@@ -190,7 +190,7 @@ STATIC OP *mysubs_gv(pTHX) {
     if (GvCV(cGVOP_gv)) {
         PL_op->op_ppaddr = annotation->op_ppaddr; /* XXX use the annotation *before* deleting it! */
         op_annotation_delete(aTHX_ MYSUBS_ANNOTATIONS, PL_op);
-        return CALL_FPTR(PL_op->op_ppaddr)(aTHX);
+        return PL_op->op_ppaddr(aTHX);
     } else {
         MySubsData *data = annotation->data;
         XPUSHs((SV *)data->cv);
@@ -357,7 +357,7 @@ STATIC OP * mysubs_prototype(pTHX) {
 
     }
 
-    return CALL_FPTR(annotation->op_ppaddr)(aTHX);
+    return annotation->op_ppaddr(aTHX);
 }
 
 STATIC CV * mysubs_get_cv(pTHX_ SV *rv) {
