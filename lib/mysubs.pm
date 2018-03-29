@@ -711,10 +711,9 @@ and Paul Fenwick for the idea.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2008-2011 by chocolateboy
+Copyright (c) 2008-2011 by chocolateboy.
 
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself, either Perl version 5.8.8 or,
-at your option, any later version of Perl 5 you may have available.
+This is free software; you can redistribute it and/or modify it under the
+terms of the Artistic License 2.0.
 
 =cut
